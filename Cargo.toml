@@ -16,3 +16,5 @@ imgui = { git = "https://github.com/imgui-rs/imgui-rs", version = "0.12", featur
 ] }
 imgui-winit-support = { version = "0.13", git = "https://github.com/imgui-rs/imgui-winit-support" }
 copypasta = "0.10.2"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_yaml = "0.9.34"
