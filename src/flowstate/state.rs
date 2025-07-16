@@ -1,63 +1,13 @@
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
+use chrono::{Local, Duration};
+use super::{types::*, commands::*, cache::Level1Cache};
 
-pub type TeamName = String;
-pub type ResourceName = String;
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct Resource {
-    pub name: ResourceName,
-    pub team_name: TeamName,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum Command {
-    CreateTeam(TeamName),
-    RenameTeam(TeamName, TeamName),
-    DeleteTeam(TeamName),
-
-    CreateResource(Resource),
-    RenameResource(ResourceName, ResourceName),
-    DeleteResource(ResourceName),
-
-    CompoundCommand(Vec<Command>),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CommandRecord {
-    pub undo_command: Command,
-    pub redo_command: Command,
-}
-
-#[derive(Debug, Clone)]
-pub struct Level1Cache {
-    pub start_date: chrono::NaiveDate,
-    pub end_date: chrono::NaiveDate,
-}
-
-impl Level1Cache {
-    pub fn new() -> Self {
-        let current_date = chrono::Local::now().date_naive();
-        Level1Cache {
-            start_date: current_date,
-            end_date: current_date,
-        }
-    }
-
-    pub fn day(&self, offset: usize) -> chrono::NaiveDate {
-        self.start_date + chrono::Duration::days(offset as i64)
-    }
-
-    pub fn num_days(&self) -> usize {
-        self.end_date.signed_duration_since(self.start_date).num_days() as usize
-    }
-}
 #[derive(Debug, Clone)]
 pub struct FlowState {
-    command_history: Vec<CommandRecord>,
+    pub(crate) command_history: Vec<CommandRecord>,
     command_count: usize,
     
-    teams: HashMap<TeamName, TeamName>,
+    pub(crate) teams: HashMap<TeamName, TeamName>,
     resources: HashMap<ResourceName, Resource>,
 
     level1_cache: Level1Cache,
@@ -78,31 +28,16 @@ impl FlowState {
         flow_state
     }
 
-    pub fn save_as_yaml(&self) -> Result<(), String> {
-        let commands_to_serialize: Vec<Command> = self.command_history
-            .iter()
-            .map(|record| record.redo_command.clone())
-            .collect();
-        let commands_as_yaml = serde_yaml::to_string(&commands_to_serialize)
-            .map_err(|e| e.to_string())?;
-        std::fs::write("database.yaml", commands_as_yaml)
-            .map_err(|e| e.to_string())
+    pub fn l1(&self) -> &Level1Cache {
+        &self.level1_cache
     }
 
-    pub fn load_from_yaml(&mut self) -> Result<(), String> {
-        let yaml_content = std::fs::read_to_string("database.yaml")
-            .map_err(|e| e.to_string())?;
-        let commands: Vec<Command> = serde_yaml::from_str(&yaml_content)
-            .map_err(|e| e.to_string())?;
-
-        let mut new_flow_state = FlowState::new();
-        commands.iter().try_for_each(|command| new_flow_state.invoke(command))?;
-        *self = new_flow_state;
-        Ok(())
+    fn build_cache(&mut self) {
+        self.level1_cache.start_date = Local::now().date_naive() - Duration::days(30);
+        self.level1_cache.end_date = Local::now().date_naive() + Duration::days(30);
     }
-}
 
-impl FlowState {
+    // Team operations
     pub fn create_team(&mut self, team_name: TeamName) -> Result<(), String> {
         let team_name_clone = team_name.clone();
         let team_name_for_undo = team_name.clone();
@@ -139,6 +74,7 @@ impl FlowState {
         Ok(())
     }
 
+    // Resource operations
     pub fn create_resource(&mut self, resource: Resource) -> Result<(), String> {
         let resource_name = resource.name.clone();
         let resource_for_undo = resource.clone();
@@ -160,8 +96,7 @@ impl FlowState {
             redo_command: Command::RenameResource(old_name.to_string(), new_name.to_string()),
         });
 
-        // todo!("Wherever old resource name is used, it should be replaced with the new name");
-
+        // TODO: Update all references to the old resource name
         Ok(())
     }
 
@@ -169,7 +104,7 @@ impl FlowState {
         let resource = self.resources.remove(resource_name)
             .ok_or_else(|| format!("Resource '{resource_name:?}' does not exist"))?;
 
-        // todo!("If the resource is used in a task, don't allow deletion");
+        // TODO: Check if resource is used in tasks before deletion
 
         self.append_to_command_history(CommandRecord {
             undo_command: Command::CreateResource(resource),
@@ -178,9 +113,8 @@ impl FlowState {
 
         Ok(())
     }
-}
 
-impl FlowState {
+    // Command operations
     fn append_to_command_history(&mut self, command_record: CommandRecord) {
         if self.command_count < self.command_history.len() {
             self.command_history.truncate(self.command_count);
@@ -249,7 +183,7 @@ impl FlowState {
                 Ok(())
             }
             Command::DeleteTeam(team_name) => {
-                // todo!("If the team has a resource, don't allow deletion");
+                // TODO: If the team has a resource, don't allow deletion
 
                 self.teams.remove(team_name)
                     .map(|_| ())
@@ -263,9 +197,9 @@ impl FlowState {
                     return Err(format!("Team '{}' already exists", new_name));
                 }
 
-                // todo!("Wherever old team name is used, it should be replaced with the new name");
+                // TODO: Update all references to the old team name
 
-                let team = self.teams.remove(old_name).unwrap();
+                let _team = self.teams.remove(old_name).unwrap();
                 let renamed_team = new_name.clone();
                 self.teams.insert(new_name.clone(), renamed_team);
                 Ok(())
@@ -286,7 +220,7 @@ impl FlowState {
                     return Err(format!("Resource '{}' already exists", new_name));
                 }
 
-                // todo!("Wherever old resource name is used, it should be replaced with the new name");
+                // TODO: Update all references to the old resource name
 
                 let resource = self.resources.remove(old_name).unwrap();
                 let renamed_resource = Resource {
@@ -296,10 +230,10 @@ impl FlowState {
                 self.resources.insert(new_name.clone(), renamed_resource);
                 Ok(())
 
-                // todo!("How about changing the team of a resource?");
+                // TODO: Add functionality to change resource team
             }
             Command::DeleteResource(resource_name) => {
-                // todo!("If the resource is used in a task, don't allow deletion");
+                // TODO: Check if resource is used in tasks before deletion
 
                 self.resources.remove(resource_name)
                     .map(|_| ())
@@ -316,125 +250,5 @@ impl FlowState {
                 Ok(())
             }
         }
-    }
-}
-
-impl FlowState {
-    pub fn l1(&self) -> &Level1Cache {
-        &self.level1_cache
-    }
-
-    fn build_cache(&mut self) {
-        self.level1_cache.start_date = chrono::Local::now().date_naive() - chrono::Duration::days(30);
-        self.level1_cache.end_date = chrono::Local::now().date_naive() + chrono::Duration::days(30);
-    }
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_create_delete_team() {
-        let mut flow_state = FlowState::new();
-        
-        let team_name: String = "Test Team".to_string();
-
-        assert!(flow_state.create_team(team_name.clone()).is_ok());
-        assert_eq!(flow_state.teams.len(), 1);
-        assert!(flow_state.teams.contains_key(&team_name));
-
-        assert!(flow_state.delete_team(&team_name).is_ok());
-        assert_eq!(flow_state.teams.len(), 0);
-        assert!(!flow_state.teams.contains_key(&team_name));
-    }
-
-    #[test]
-    fn test_create_delete_team_undo_undo_redo_redo() {
-        /* create a team, then delete the team, then undo two
-         * times, then redo two times, expecting no teams 
-         */
-        let mut flow_state = FlowState::new();
-
-        let team_name = "Test Team".to_string();
-        
-        assert!(flow_state.create_team(team_name.clone()).is_ok());
-        assert_eq!(flow_state.teams.len(), 1);
-        assert!(flow_state.teams.contains_key(&team_name));
-        println!("After create: {flow_state:#?}");
-
-        assert!(flow_state.delete_team(&team_name).is_ok());
-        assert_eq!(flow_state.teams.len(), 0);
-        assert!(!flow_state.teams.contains_key(&team_name));
-        println!("After delete: {flow_state:#?}");
-        
-        assert!(flow_state.undo().is_ok());
-        assert_eq!(flow_state.teams.len(), 1);
-        assert!(flow_state.teams.contains_key(&team_name));
-        println!("After undo: {flow_state:#?}");
-
-        assert!(flow_state.undo().is_ok());
-        assert_eq!(flow_state.teams.len(), 0);
-        assert!(!flow_state.teams.contains_key(&team_name));
-        println!("After undo: {flow_state:#?}");
-
-        assert!(flow_state.undo().is_err());
-        println!("After undo: {flow_state:#?}");
-        
-        assert!(flow_state.redo().is_ok());
-        assert_eq!(flow_state.teams.len(), 1);
-        assert!(flow_state.teams.contains_key(&team_name));
-        println!("After redo: {flow_state:#?}");
-
-        assert!(flow_state.redo().is_ok());
-        assert_eq!(flow_state.teams.len(), 0);
-        assert!(!flow_state.teams.contains_key(&team_name));
-        println!("After redo: {flow_state:#?}");
-
-        assert!(flow_state.redo().is_err());
-        println!("After redo: {flow_state:#?}");
-    }
-
-    #[test]
-    fn test_rename_team_undo_redo() {
-        let mut flow_state = FlowState::new();
-        let team_name = "Test Team".to_string();
-        assert!(flow_state.create_team(team_name.clone()).is_ok());
-
-        let new_team_name = "Renamed Team".to_string();
-        assert!(flow_state.rename_team(&team_name, &new_team_name).is_ok());
-        assert_eq!(flow_state.teams.len(), 1);
-        assert!(flow_state.teams.contains_key(&new_team_name));
-        assert!(!flow_state.teams.contains_key(&team_name));
-        println!("After rename: {flow_state:#?}");
-
-        assert!(flow_state.undo().is_ok());
-        assert_eq!(flow_state.teams.len(), 1);
-        assert!(flow_state.teams.contains_key(&team_name));
-        assert!(!flow_state.teams.contains_key(&new_team_name));
-        println!("After undo: {flow_state:#?}");
-
-        assert!(flow_state.redo().is_ok());
-        assert_eq!(flow_state.teams.len(), 1);
-        assert!(flow_state.teams.contains_key(&new_team_name));
-        assert!(!flow_state.teams.contains_key(&team_name));
-        println!("After redo: {flow_state:#?}");
-    }
-
-    #[test]
-    fn test_save_load_yaml() {
-        let mut flow_state = FlowState::new();
-        let team_name = "Test Team".to_string();
-        assert!(flow_state.create_team(team_name.clone()).is_ok());
-        assert_eq!(flow_state.teams.len(), 1);
-        assert!(flow_state.teams.contains_key(&team_name));
-        assert!(flow_state.save_as_yaml().is_ok());
-        println!("After save: {flow_state:#?}");
-
-        let mut loaded_flow_state = FlowState::new();
-        assert!(loaded_flow_state.load_from_yaml().is_ok());
-        assert_eq!(loaded_flow_state.teams.len(), 1);
-        assert!(loaded_flow_state.teams.contains_key(&team_name));
-        assert_eq!(loaded_flow_state.teams.get(&team_name).unwrap(), &team_name);
-        println!("After load: {loaded_flow_state:#?}");
     }
 }
