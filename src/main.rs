@@ -1,10 +1,9 @@
-mod support;
 mod flowstate;
+mod gui;
+mod support;
+
 
 fn main() {
-    let _flow_state = flowstate::FlowState::new();
-    
-    support::simple_init(file!(), move |_, _ui| {
-        // nothing! don't actually do any imgui funtimes
-    });
+    let gui = gui::Gui::new();
+    gui.run();
 }
