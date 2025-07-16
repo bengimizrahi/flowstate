@@ -22,21 +22,50 @@ pub struct CommandRecord {
 }
 
 #[derive(Debug)]
-pub struct FlowState {
-    teams: HashMap<TeamName, Team>,
+pub struct Level1Cache {
+    pub start_date: chrono::NaiveDate,
+    pub end_date: chrono::NaiveDate,
+}
 
+impl Level1Cache {
+    pub fn new() -> Self {
+        let current_date = chrono::Local::now().date_naive();
+        Level1Cache {
+            start_date: current_date,
+            end_date: current_date,
+        }
+    }
+
+    pub fn day(&self, offset: usize) -> chrono::NaiveDate {
+        self.start_date + chrono::Duration::days(offset as i64)
+    }
+
+    pub fn num_days(&self) -> usize {
+        self.end_date.signed_duration_since(self.start_date).num_days() as usize
+    }
+}
+#[derive(Debug)]
+pub struct FlowState {
     command_history: Vec<CommandRecord>,
     command_count: usize,
+    
+    teams: HashMap<TeamName, Team>,
+
+    level1_cache: Level1Cache,
 }
 
 impl FlowState {
     pub fn new() -> Self {
-        FlowState {
-            teams: HashMap::new(),
-            
+        let mut flow_state = FlowState {
             command_history: Vec::new(),
             command_count: 0,
-        }
+
+            teams: HashMap::new(),
+
+            level1_cache: Level1Cache::new(),
+        };
+        flow_state.build_cache();
+        flow_state
     }
 
     pub fn save_as_yaml(&self) -> Result<(), String> {
@@ -61,15 +90,9 @@ impl FlowState {
         *self = new_flow_state;
         Ok(())
     }
+}
 
-    fn append_to_command_history(&mut self, command_record: CommandRecord) {
-        if self.command_count < self.command_history.len() {
-            self.command_history.truncate(self.command_count);
-        }
-        self.command_history.push(command_record);
-        self.command_count = self.command_history.len();
-    }
-
+impl FlowState {
     pub fn create_team(&mut self, team: Team) -> Result<(), String> {
         let team_name = team.name.clone();
         let team_for_undo = team.clone();
@@ -91,7 +114,7 @@ impl FlowState {
             redo_command: Command::RenameTeam(old_name.to_string(), new_name.to_string()),
         });
 
-        todo!("Wherever old team name is used, it should be replaced with the new name");
+        // todo!("Wherever old team name is used, it should be replaced with the new name");
 
         Ok(())
     }
@@ -106,6 +129,16 @@ impl FlowState {
         });
 
         Ok(())
+    }
+}
+
+impl FlowState {
+    fn append_to_command_history(&mut self, command_record: CommandRecord) {
+        if self.command_count < self.command_history.len() {
+            self.command_history.truncate(self.command_count);
+        }
+        self.command_history.push(command_record);
+        self.command_count = self.command_history.len();
     }
 
     pub fn invoke(&mut self, command: &Command) -> Result<(), String> {
@@ -177,6 +210,16 @@ impl FlowState {
     }
 }
 
+impl FlowState {
+    pub fn l1(&self) -> &Level1Cache {
+        &self.level1_cache
+    }
+
+    fn build_cache(&mut self) {
+        self.level1_cache.start_date = chrono::Local::now().date_naive() - chrono::Duration::days(30);
+        self.level1_cache.end_date = chrono::Local::now().date_naive() + chrono::Duration::days(30);
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
