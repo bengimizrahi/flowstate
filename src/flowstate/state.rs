@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use chrono::{Local, Duration};
 use super::{types::*, commands::*, cache::Level1Cache};
 
@@ -7,7 +7,7 @@ pub struct FlowState {
     pub(crate) command_history: Vec<CommandRecord>,
     pub(crate) command_count: usize,
     
-    pub(crate) teams: HashSet<TeamName>,
+    pub(crate) teams: BTreeSet<TeamName>,
     pub(crate) resources: HashMap<ResourceName, Resource>,
 
     level1_cache: Level1Cache,
@@ -19,7 +19,7 @@ impl FlowState {
             command_history: Vec::new(),
             command_count: 0,
 
-            teams: HashSet::new(),
+            teams: BTreeSet::new(),
             resources: HashMap::new(),
 
             level1_cache: Level1Cache::new(),
@@ -133,7 +133,6 @@ impl FlowState {
         Ok(())
     }
 
-    // Command operations
     fn append_to_command_history(&mut self, command_record: CommandRecord) {
         if self.command_count < self.command_history.len() {
             self.command_history.truncate(self.command_count);
