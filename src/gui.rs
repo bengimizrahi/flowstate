@@ -6,7 +6,9 @@ use chrono::Datelike;
 pub struct Gui {
     flow_state: flowstate::state::FlowState,
 
-    create_team_input_text_buffer: String,
+    team_input_text_buffer: String,
+    milestone_input_text_buffer: String,
+    milestone_date_input_text_buffer: String,
 }
 
 impl Gui {
@@ -15,7 +17,9 @@ impl Gui {
         flow_state.load_from_yaml().unwrap();
         Gui {
             flow_state,
-            create_team_input_text_buffer: String::new(),
+            team_input_text_buffer: String::new(),
+            milestone_input_text_buffer: String::new(),
+            milestone_date_input_text_buffer: String::new(),
         }
     }
 
@@ -51,6 +55,16 @@ impl Gui {
     }
 
     fn draw_menu_bar(&mut self, ui: &Ui) {
+        if ui.is_key_pressed(Key::Z) && ui.io().key_ctrl {
+            self.flow_state.undo().unwrap_or_else(|e| {
+                eprintln!("Failed to undo: {e}");
+            });
+        }
+        if ui.is_key_pressed(Key::Y) && ui.io().key_ctrl {
+            self.flow_state.redo().unwrap_or_else(|e| {
+                eprintln!("Failed to redo: {e}");
+            });
+        }
         if let Some(menu_bar) = ui.begin_menu_bar() {
             if let Some(_file_menu) = ui.begin_menu("File") {
                 if ui.menu_item("New Project...") {
@@ -67,11 +81,17 @@ impl Gui {
                 }
             };
             if let Some(_edit_menu) = ui.begin_menu("Edit") {
-                if ui.menu_item("Undo") {
-
+                if ui.menu_item_config("Undo").shortcut("Ctrl+Z").build() {
+                    // todo!("disable undo if no commands to undo")
+                    self.flow_state.undo().unwrap_or_else(|e| {
+                        eprintln!("Failed to undo: {e}");
+            });
                 }
-                if ui.menu_item("Redo") {
-
+                if ui.menu_item_config("Redo").shortcut("Ctrl+Y").build() {
+                    // todo!("disable redo if no commands to redo")
+                    self.flow_state.redo().unwrap_or_else(|e| {
+                        eprintln!("Failed to redo: {e}");
+                    });
                 }
             };
             if let Some(_action_menu) = ui.begin_menu("Insert") {
@@ -80,37 +100,61 @@ impl Gui {
                             .size([140.0, 20.0])
                             .begin() {
                         let mut can_create_team = false;
-                        if ui.input_text("##team_name", &mut self.create_team_input_text_buffer)
+                        if ui.input_text("##team_name", &mut self.team_input_text_buffer)
                                 .enter_returns_true(true)
                                 .hint("Enter team name")
                                 .build() {
-                            can_create_team = !self.create_team_input_text_buffer.is_empty();
+                            can_create_team = !self.team_input_text_buffer.is_empty();
                         }
                         ui.same_line();
                         if ui.button("Ok") {
-                            can_create_team = !self.create_team_input_text_buffer.is_empty();
+                            can_create_team = !self.team_input_text_buffer.is_empty();
                         }
                         if can_create_team {
                             ui.close_current_popup();
-                            self.flow_state.create_team(self.create_team_input_text_buffer.clone()).unwrap();
-                            self.create_team_input_text_buffer.clear();
+                            self.flow_state.create_team(self.team_input_text_buffer.clone()).unwrap();
+                            self.team_input_text_buffer.clear();
                         }
                         child_window.end();
                     }
                 }
-                if ui.menu_item("Resource") {
-                    if let Some(child_window) = ui.child_window("##resource_menu")
-                            .size([250.0, 20.0])
+                if let Some(_milestone_menu) = ui.begin_menu("Milestone") {
+                    if let Some(child_window) = ui.child_window("##team_menu")
+                            .size([240.0, 50.0])
                             .begin() {
-                        
+                        let mut can_create_milestone = false;
+                        if ui.input_text("##milestone_title", &mut self.milestone_input_text_buffer)
+                                .enter_returns_true(true)
+                                .hint("Milestone Title")
+                                .build() {
+                            can_create_milestone = {
+                                !self.milestone_input_text_buffer.is_empty() &&
+                                !self.milestone_date_input_text_buffer.is_empty()
+                            };
+                        }
+                        if ui.input_text("##milestone_date", &mut self.milestone_date_input_text_buffer)
+                                .enter_returns_true(true)
+                                .hint("Milestone Date (YYYY-MM-DD)")
+                                .build() {
+                            can_create_milestone = {
+                                !self.milestone_input_text_buffer.is_empty() &&
+                                !self.milestone_date_input_text_buffer.is_empty()
+                            };
+                        }
+                        ui.same_line();
+                        if ui.button("Ok") {
+                            can_create_milestone = {
+                                !self.milestone_input_text_buffer.is_empty() &&
+                                !self.milestone_date_input_text_buffer.is_empty()
+                            };
+                        }
+                        if can_create_milestone {
+                            ui.close_current_popup();
+                            //self.flow_state.create_milestone(self.milestone_input_text_buffer.clone()).unwrap();
+                            self.milestone_input_text_buffer.clear();
+                        }
                         child_window.end();
                     }
-                }
-                if ui.menu_item("Task") {
-
-                }
-                if ui.menu_item("Milestone") {
-
                 }
             };
             if let Some(_filter_menu) = ui.begin_menu("Filter") {
@@ -221,6 +265,14 @@ impl Gui {
                 }
             }
         }
+        ui.table_next_row();
+        for i in 1..=self.flow_state.l1().num_days() {
+            if ui.table_next_column() {
+                let bg_color = ui.style_color(StyleColor::TableHeaderBg);
+                ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
+            }
+        }
+
     }
 
     fn draw_resources_gantt_chart_contents(&mut self, ui: &Ui) {
@@ -239,6 +291,7 @@ impl Gui {
         let expand_team = unsafe {
             imgui::sys::igTreeNodeEx_Str(team_name_cstr.as_ptr(), flags as i32)
         };
+        self.draw_popup_context_menu_for_team_header_column(ui, team_name);
 
         for i in 1..=self.flow_state.l1().num_days() {
             if ui.table_next_column() {
@@ -255,6 +308,38 @@ impl Gui {
             unsafe {imgui::sys::igTreePop();}
         }
 
+    }
+
+    fn draw_popup_context_menu_for_team_header_column(&mut self, ui: &Ui, team_name: &str) {
+        if let Some(popup) = ui.begin_popup_context_item() {
+            if let Some(_rename_team_menu) = ui.begin_menu("Rename Team") {
+                if let Some(child_window) = ui.child_window("##rename_team_menu")
+                        .size([140.0, 20.0])
+                        .begin() {
+                    let mut can_create_team = false;
+                    if ui.input_text("##new_team_name", &mut self.team_input_text_buffer)
+                            .enter_returns_true(true)
+                            .hint(team_name)
+                            .build() {
+                        can_create_team = !self.team_input_text_buffer.is_empty();
+                    }
+                    ui.same_line();
+                    if ui.button("Ok") {
+                        can_create_team = !self.team_input_text_buffer.is_empty();
+                    }
+                    if can_create_team {
+                        ui.close_current_popup();
+                        self.flow_state.rename_team(team_name, &self.team_input_text_buffer).unwrap();
+                        self.team_input_text_buffer.clear();
+                    }
+                    child_window.end();
+                }
+            }
+            if ui.menu_item("Delete Team") {
+                self.flow_state.delete_team(team_name).unwrap();
+            }
+            popup.end();
+        }
     }
 
     fn draw_tasks_gantt_chart_contents(&mut self, ui: &Ui) {
