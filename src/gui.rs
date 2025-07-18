@@ -76,12 +76,13 @@ impl Gui {
             };
             if let Some(_action_menu) = ui.begin_menu("Insert") {
                 if let Some(_team_menu) = ui.begin_menu("Team") {
-                    if let Some(_child_window) = ui.child_window("##team_menu")
-                            .size([120.0, 20.0])
+                    if let Some(child_window) = ui.child_window("##team_menu")
+                            .size([140.0, 20.0])
                             .begin() {
                         let mut can_create_team = false;
                         if ui.input_text("##team_name", &mut self.create_team_input_text_buffer)
                                 .enter_returns_true(true)
+                                .hint("Enter team name")
                                 .build() {
                             can_create_team = !self.create_team_input_text_buffer.is_empty();
                         }
@@ -90,18 +91,25 @@ impl Gui {
                             can_create_team = !self.create_team_input_text_buffer.is_empty();
                         }
                         if can_create_team {
+                            ui.close_current_popup();
                             self.flow_state.create_team(self.create_team_input_text_buffer.clone()).unwrap();
                             self.create_team_input_text_buffer.clear();
-                        } 
+                        }
+                        child_window.end();
                     }
                 }
-                if ui.menu_item("Resource...") {
+                if ui.menu_item("Resource") {
+                    if let Some(child_window) = ui.child_window("##resource_menu")
+                            .size([250.0, 20.0])
+                            .begin() {
+                        
+                        child_window.end();
+                    }
+                }
+                if ui.menu_item("Task") {
 
                 }
-                if ui.menu_item("Task...") {
-
-                }
-                if ui.menu_item("Milestone...") {
+                if ui.menu_item("Milestone") {
 
                 }
             };
