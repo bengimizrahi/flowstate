@@ -1,9 +1,14 @@
 use chrono::{Local, Duration, NaiveDate};
+use std::collections::{BTreeMap};
+
+use crate::flowstate::*;
 
 #[derive(Debug, Clone)]
 pub struct Level1Cache {
     pub start_date: NaiveDate,
     pub end_date: NaiveDate,
+
+    pub team_members: BTreeMap<TeamName, Vec<ResourceName>>,
 }
 
 impl Level1Cache {
@@ -12,6 +17,8 @@ impl Level1Cache {
         Level1Cache {
             start_date: current_date,
             end_date: current_date,
+            
+            team_members: BTreeMap::new(),
         }
     }
 

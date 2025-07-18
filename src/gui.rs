@@ -1,18 +1,26 @@
 use imgui::*;
 use crate::support;
 use crate::flowstate;
+use chrono::Datelike;
 
 pub struct Gui {
-    flow_state: flowstate::FlowState,
+    flow_state: flowstate::state::FlowState,
+
+    create_team_input_text_buffer: String,
 }
 
 impl Gui {
     pub fn new() -> Self {
-        Gui { flow_state: flowstate::FlowState::new() }
+        let mut flow_state = flowstate::state::FlowState::new();
+        flow_state.load_from_yaml().unwrap();
+        Gui {
+            flow_state,
+            create_team_input_text_buffer: String::new(),
+        }
     }
 
     pub fn run(mut self) {
-        support::simple_init(file!(), move |_, ui| {
+        support::simple_init(file!(), move |run, ui| {
             unsafe {imgui::sys::igStyleColorsLight(std::ptr::null_mut());}
             
             let display_size = ui.io().display_size;
@@ -44,7 +52,7 @@ impl Gui {
 
     fn draw_menu_bar(&mut self, ui: &Ui) {
         if let Some(menu_bar) = ui.begin_menu_bar() {
-            if let Some(file_menu) = ui.begin_menu("File") {
+            if let Some(_file_menu) = ui.begin_menu("File") {
                 if ui.menu_item("New Project...") {
 
                 }
@@ -57,31 +65,52 @@ impl Gui {
                 if ui.menu_item("Exit") {
 
                 }
-                file_menu.end();
             };
-            if let Some(edit_menu) = ui.begin_menu("Edit") {
+            if let Some(_edit_menu) = ui.begin_menu("Edit") {
                 if ui.menu_item("Undo") {
 
                 }
                 if ui.menu_item("Redo") {
 
                 }
-                edit_menu.end();
             };
-            if let Some(action_menu) = ui.begin_menu("Action") {
-                if ui.menu_item("Team") {
+            if let Some(_action_menu) = ui.begin_menu("Insert") {
+                if let Some(_team_menu) = ui.begin_menu("Team") {
+                    if let Some(_child_window) = ui.child_window("##team_menu")
+                            .size([120.0, 20.0])
+                            .begin() {
+                        let mut can_create_team = false;
+                        if ui.input_text("##team_name", &mut self.create_team_input_text_buffer)
+                                .enter_returns_true(true)
+                                .build() {
+                            can_create_team = !self.create_team_input_text_buffer.is_empty();
+                        }
+                        ui.same_line();
+                        if ui.button("Ok") {
+                            can_create_team = !self.create_team_input_text_buffer.is_empty();
+                        }
+                        if can_create_team {
+                            self.flow_state.create_team(self.create_team_input_text_buffer.clone()).unwrap();
+                            self.create_team_input_text_buffer.clear();
+                        } 
+                    }
+                }
+                if ui.menu_item("Resource...") {
 
                 }
-                action_menu.end();
+                if ui.menu_item("Task...") {
+
+                }
+                if ui.menu_item("Milestone...") {
+
+                }
             };
-            if let Some(filter_menu) = ui.begin_menu("Filter") {
-                filter_menu.end();
+            if let Some(_filter_menu) = ui.begin_menu("Filter") {
             };
-            if let Some(help_menu) = ui.begin_menu("Help") {
+            if let Some(_help_menu) = ui.begin_menu("Help") {
                 if ui.menu_item("About") {
 
                 }
-                help_menu.end();
             };
             menu_bar.end();
         };
@@ -174,11 +203,50 @@ impl Gui {
         ui.table_next_row();
         ui.table_next_column();
         ui.text("  Milestones");
-        for i in 0..self.flow_state.l1().num_days() {
+        for i in 1..=self.flow_state.l1().num_days() {
+            if ui.table_next_column() {
+                let _id = ui.push_id_usize(i);
+                let day = self.flow_state.l1().day(i - 1);
+                if day.weekday() == chrono::Weekday::Sat || day.weekday() == chrono::Weekday::Sun {
+                    let bg_color = ui.style_color(StyleColor::TableHeaderBg);
+                    ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
+                }
+            }
         }
     }
 
     fn draw_resources_gantt_chart_contents(&mut self, ui: &Ui) {
+        let team_names: Vec<String> = self.flow_state.teams.iter().cloned().collect();
+        for team_name in team_names.iter() {
+            self.draw_resource_gantt_chart_team(ui, team_name);
+        }
+    }
+
+    fn draw_resource_gantt_chart_team(&mut self, ui: &Ui, team_name: &str) {
+        ui.table_next_row();
+        ui.table_next_column();
+        
+        let team_name_cstr = std::ffi::CString::new(team_name).unwrap();
+        let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_DefaultOpen;
+        let expand_team = unsafe {
+            imgui::sys::igTreeNodeEx_Str(team_name_cstr.as_ptr(), flags as i32)
+        };
+
+        for i in 1..=self.flow_state.l1().num_days() {
+            if ui.table_next_column() {
+                let _id = ui.push_id_usize(i);
+                let day = self.flow_state.l1().day(i - 1);
+                if day.weekday() == chrono::Weekday::Sat || day.weekday() == chrono::Weekday::Sun {
+                    let bg_color = ui.style_color(StyleColor::TableHeaderBg);
+                    ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
+                }
+            }
+        }
+
+        if expand_team {
+            unsafe {imgui::sys::igTreePop();}
+        }
+
     }
 
     fn draw_tasks_gantt_chart_contents(&mut self, ui: &Ui) {

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use chrono::{Local, Duration};
 use super::{types::*, commands::*, cache::Level1Cache};
 
@@ -7,8 +7,8 @@ pub struct FlowState {
     pub(crate) command_history: Vec<CommandRecord>,
     command_count: usize,
     
-    pub(crate) teams: HashMap<TeamName, TeamName>,
-    resources: HashMap<ResourceName, Resource>,
+    pub(crate) teams: HashSet<TeamName>,
+    pub(crate) resources: HashMap<ResourceName, Resource>,
 
     level1_cache: Level1Cache,
 }
@@ -19,7 +19,7 @@ impl FlowState {
             command_history: Vec::new(),
             command_count: 0,
 
-            teams: HashMap::new(),
+            teams: HashSet::new(),
             resources: HashMap::new(),
 
             level1_cache: Level1Cache::new(),
@@ -35,9 +35,16 @@ impl FlowState {
     fn build_cache(&mut self) {
         self.level1_cache.start_date = Local::now().date_naive() - Duration::days(30);
         self.level1_cache.end_date = Local::now().date_naive() + Duration::days(30);
+        
+        self.level1_cache.team_members.clear();
+        for resource in self.resources.values() {
+            self.level1_cache.team_members
+                .entry(resource.team_name.clone())
+                .or_default()
+                .push(resource.name.clone());
+        }
     }
 
-    // Team operations
     pub fn create_team(&mut self, team_name: TeamName) -> Result<(), String> {
         let team_name_clone = team_name.clone();
         let team_name_for_undo = team_name.clone();
@@ -47,6 +54,8 @@ impl FlowState {
             undo_command: Command::DeleteTeam(team_name_clone),
             redo_command: Command::CreateTeam(team_name_for_undo),
         });
+        self.save_as_yaml().unwrap();
+        self.build_cache();
         
         Ok(())
     }
@@ -58,23 +67,27 @@ impl FlowState {
             undo_command: Command::RenameTeam(new_name.to_string(), old_name.to_string()),
             redo_command: Command::RenameTeam(old_name.to_string(), new_name.to_string()),
         });
+        self.save_as_yaml().unwrap();
+        self.build_cache();
 
         Ok(())
     }
 
     pub fn delete_team(&mut self, team_name: &str) -> Result<(), String> {
-        let team = self.teams.remove(team_name)
-            .ok_or_else(|| format!("Team '{team_name:?}' does not exist"))?;
+        if !self.teams.remove(team_name) {
+            return Err(format!("Team '{team_name:?}' does not exist"));
+        }
 
         self.append_to_command_history(CommandRecord {
-            undo_command: Command::CreateTeam(team),
+            undo_command: Command::CreateTeam(team_name.to_string()),
             redo_command: Command::DeleteTeam(team_name.to_string()),
         });
+        self.save_as_yaml().unwrap();
+        self.build_cache();
 
         Ok(())
     }
 
-    // Resource operations
     pub fn create_resource(&mut self, resource: Resource) -> Result<(), String> {
         let resource_name = resource.name.clone();
         let resource_for_undo = resource.clone();
@@ -84,7 +97,9 @@ impl FlowState {
             undo_command: Command::DeleteResource(resource_name),
             redo_command: Command::CreateResource(resource_for_undo),
         });
-        
+        self.save_as_yaml().unwrap();
+        self.build_cache();
+
         Ok(())
     }
 
@@ -95,6 +110,8 @@ impl FlowState {
             undo_command: Command::RenameResource(new_name.to_string(), old_name.to_string()),
             redo_command: Command::RenameResource(old_name.to_string(), new_name.to_string()),
         });
+        self.save_as_yaml().unwrap();
+        self.build_cache();
 
         // TODO: Update all references to the old resource name
         Ok(())
@@ -110,6 +127,8 @@ impl FlowState {
             undo_command: Command::CreateResource(resource),
             redo_command: Command::DeleteResource(resource_name.to_string()),
         });
+        self.save_as_yaml().unwrap();
+        self.build_cache();
 
         Ok(())
     }
@@ -176,32 +195,32 @@ impl FlowState {
     fn execute_command(&mut self, command: &Command) -> Result<(), String> {
         match command {
             Command::CreateTeam(team_name) => {
-                if self.teams.contains_key(team_name) {
+                if self.teams.contains(team_name) {
                     return Err(format!("Team '{}' already exists", team_name));
                 }
-                self.teams.insert(team_name.clone(), team_name.clone());
+                self.teams.insert(team_name.clone());
                 Ok(())
             }
             Command::DeleteTeam(team_name) => {
                 // TODO: If the team has a resource, don't allow deletion
 
-                self.teams.remove(team_name)
-                    .map(|_| ())
-                    .ok_or_else(|| format!("Team '{}' does not exist", team_name))
+                if !self.teams.remove(team_name) {
+                    return Err(format!("Team '{}' does not exist", team_name));
+                }
+                Ok(())
             }
             Command::RenameTeam(old_name, new_name) => {
-                if !self.teams.contains_key(old_name) {
+                if !self.teams.contains(old_name) {
                     return Err(format!("Team '{}' does not exist", old_name));
                 }
-                if self.teams.contains_key(new_name) {
+                if self.teams.contains(new_name) {
                     return Err(format!("Team '{}' already exists", new_name));
                 }
 
                 // TODO: Update all references to the old team name
 
-                let _team = self.teams.remove(old_name).unwrap();
-                let renamed_team = new_name.clone();
-                self.teams.insert(new_name.clone(), renamed_team);
+                self.teams.remove(old_name);
+                self.teams.insert(new_name.clone());
                 Ok(())
             }
 

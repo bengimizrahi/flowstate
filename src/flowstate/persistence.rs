@@ -13,14 +13,14 @@ impl FlowState {
     }
 
     pub fn load_from_yaml(&mut self) -> Result<(), String> {
-        let yaml_content = std::fs::read_to_string("database.yaml")
-            .map_err(|e| e.to_string())?;
-        let commands: Vec<Command> = serde_yaml::from_str(&yaml_content)
-            .map_err(|e| e.to_string())?;
-
         let mut new_flow_state = FlowState::new();
-        commands.iter().try_for_each(|command| new_flow_state.invoke(command))?;
+        if let Ok(yaml_content) = std::fs::read_to_string("database.yaml") {
+            if let Ok(commands) = serde_yaml::from_str::<Vec<Command>>(&yaml_content) {
+                commands.iter().try_for_each(|command| new_flow_state.invoke(command))?;
+            }
+        }
         *self = new_flow_state;
+        dbg!("Loaded flow state from YAML: {:?}", self);
         Ok(())
     }
 }
