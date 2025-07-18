@@ -5,7 +5,7 @@ use super::{types::*, commands::*, cache::Level1Cache};
 #[derive(Debug, Clone)]
 pub struct FlowState {
     pub(crate) command_history: Vec<CommandRecord>,
-    command_count: usize,
+    pub(crate) command_count: usize,
     
     pub(crate) teams: HashSet<TeamName>,
     pub(crate) resources: HashMap<ResourceName, Resource>,
@@ -176,7 +176,12 @@ impl FlowState {
         self.command_count -= 1;
         let command = self.command_history[self.command_count].undo_command.clone();
         self.execute_command(&command)
-            .map_err(|e| format!("Undo failed: {}", e))
+            .map_err(|e| format!("Undo failed: {}", e))?;
+
+        self.save_as_yaml().unwrap();
+        self.build_cache();
+
+        Ok(())
     }
 
     pub fn redo(&mut self) -> Result<(), String> {
@@ -187,8 +192,11 @@ impl FlowState {
         let command = self.command_history[self.command_count].redo_command.clone();
         self.execute_command(&command)
             .map_err(|e| format!("Redo failed: {}", e))?;
-
         self.command_count += 1;
+
+        self.save_as_yaml().unwrap();
+        self.build_cache();
+
         Ok(())
     }
 
