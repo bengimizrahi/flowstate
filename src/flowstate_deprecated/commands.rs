@@ -11,6 +11,10 @@ pub enum Command {
     RenameResource(ResourceName, ResourceName),
     DeleteResource(ResourceName),
 
+    CreateTask(Task),
+    UpdateTask(Task),
+    DeleteTask(TaskId),
+    
     CompoundCommand(Vec<Command>),
 }
 

@@ -9,6 +9,8 @@ pub struct FlowState {
     
     pub(crate) teams: BTreeSet<TeamName>,
     pub(crate) resources: HashMap<ResourceName, Resource>,
+    pub(crate) tasks: HashMap<TaskId, Task>,
+    pub(crate) worklogs: Vec<Worklog>,
 
     level1_cache: Level1Cache,
 }
@@ -21,6 +23,8 @@ impl FlowState {
 
             teams: BTreeSet::new(),
             resources: HashMap::new(),
+            tasks: HashMap::new(),
+            worklogs: Vec::new(),
 
             level1_cache: Level1Cache::new(),
         };
@@ -133,6 +137,66 @@ impl FlowState {
         Ok(())
     }
 
+    pub fn create_task(&mut self, task: Task) -> Result<(), String> {
+        let task_id = task.id.clone();
+        let task_for_undo = task.clone();
+        self.execute_command(&Command::CreateTask(task))?;
+
+        self.append_to_command_history(CommandRecord {
+            undo_command: Command::DeleteTask(task_id),
+            redo_command: Command::CreateTask(task_for_undo),
+        });
+        self.save_as_yaml().unwrap();
+        self.build_cache();
+
+        Ok(())
+    }
+
+    pub fn update_task(&mut self, task: Task) -> Result<(), String> {
+        if !self.tasks.contains_key(&task.id) {
+            return Err(format!("Task with ID '{}' does not exist", task.id.0));
+        }
+
+        let original = self.tasks[&task.id].clone();
+        let task_clone = task.clone();
+        self.execute_command(&Command::UpdateTask(task))?;
+
+        self.append_to_command_history(CommandRecord {
+            undo_command: Command::UpdateTask(original),
+            redo_command: Command::UpdateTask(task_clone),
+        });
+        self.save_as_yaml().unwrap();
+        self.build_cache();
+
+        Ok(())
+    }
+
+    pub fn delete_task(&mut self, task_id: TaskId) -> Result<(), String> {
+        let task = self.tasks.remove(&task_id)
+            .ok_or_else(|| format!("Task with ID '{}' does not exist", task_id.0))?;
+
+        self.append_to_command_history(CommandRecord {
+            undo_command: Command::CreateTask(task),
+            redo_command: Command::DeleteTask(task_id),
+        });
+        self.save_as_yaml().unwrap();
+        self.build_cache();
+
+        Ok(())
+    }
+
+    pub fn set_worklog(&mut self, worklog: Worklog) -> Result<(), String> {
+        if !self.tasks.contains_key(&worklog.task_id) {
+            return Err(format!("Task with ID '{}' does not exist", worklog.task_id.0));
+        }
+
+        self.worklogs.push(worklog);
+        self.save_as_yaml().unwrap();
+        self.build_cache();
+
+        Ok(())
+    }
+    
     fn append_to_command_history(&mut self, command_record: CommandRecord) {
         if self.command_count < self.command_history.len() {
             self.command_history.truncate(self.command_count);
@@ -160,6 +224,15 @@ impl FlowState {
             }
             Command::DeleteResource(resource_name) => {
                 self.delete_resource(resource_name)
+            }
+            Command::CreateTask(task) => {
+                self.create_task(task.clone())
+            }
+            Command::UpdateTask(task) => {
+                self.update_task(task.clone())
+            }
+            Command::DeleteTask(task_id) => {
+                self.delete_task(*task_id)
             }
             Command::CompoundCommand(_) => {
                 Err("Compound commands are not supported directly".to_string())
@@ -230,7 +303,6 @@ impl FlowState {
                 self.teams.insert(new_name.clone());
                 Ok(())
             }
-
             Command::CreateResource(resource) => {
                 if self.resources.contains_key(&resource.name) {
                     return Err(format!("Resource '{}' already exists", resource.name));
@@ -264,6 +336,30 @@ impl FlowState {
                 self.resources.remove(resource_name)
                     .map(|_| ())
                     .ok_or_else(|| format!("Resource '{}' does not exist", resource_name))
+            }
+            Command::CreateTask(task) => {
+                if self.tasks.contains_key(&task.id) {
+                    return Err(format!("Task with ID '{}' already exists", task.id.0));
+                }
+                self.tasks.insert(task.id.clone(), task.clone());
+                
+                Ok(())
+            }
+            Command::UpdateTask(task) => {
+                if !self.tasks.contains_key(&task.id) {
+                    return Err(format!("Task with ID '{}' does not exist", task.id.0));
+                }
+                self.tasks.insert(task.id.clone(), task.clone());
+                
+                Ok(())
+            }
+            Command::DeleteTask(task_id) => {
+                if !self.tasks.contains_key(&task_id) {
+                    return Err(format!("Task with ID '{}' does not exist", task_id.0));
+                }
+                self.tasks.remove(task_id);
+                
+                Ok(())
             }
             Command::CompoundCommand(commands) => {
                 let initial_state = self.clone();
