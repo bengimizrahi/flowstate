@@ -40,7 +40,7 @@ enum Command {
         old_name: ResourceName,
         new_name: ResourceName,
     },
-    SwitchResourceTeam{
+    SwitchTeam{
         timestamp: DateTime<Utc>,
         resource_name: ResourceName,
         new_team_name: TeamName,
@@ -159,15 +159,37 @@ struct Absence {
 #[derive(Debug)]
 struct Resource {
     name: ResourceName,
+    team_id: TeamId,
     assigned_tasks: BTreeSet<TaskId>,
     watched_tasks: BTreeSet<TaskId>,
     absences: Vec<Absence>,
+}
+
+impl Resource {
+    fn new(name: ResourceName, team_id: TeamId) -> Self {
+        Self {
+            name,
+            team_id,
+            assigned_tasks: BTreeSet::new(),
+            watched_tasks: BTreeSet::new(),
+            absences: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug)]
 struct Team {
     name: TeamName,
     resources: BTreeSet<ResourceId>,
+}
+
+impl Team {
+    fn new(name: TeamName) -> Self {
+        Self {
+            name,
+            resources: BTreeSet::new(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -300,12 +322,67 @@ impl Application {
                     redo_command: command,
                 });
             }
+            Command::RenameTeam { timestamp, old_name, new_name } => {
+                self.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::RenameTeam {
+                        timestamp: timestamp.clone(),
+                        old_name: new_name.clone(),
+                        new_name: old_name.clone(),
+                    },
+                    redo_command: command,
+                });
+            }
             Command::DeleteTeam { timestamp,name } => {
                 self.execute_command(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::CreateTeam {
                         timestamp: timestamp.clone(),
                         name: name.clone(),
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::CreateResource { timestamp, name, team_name } => {
+                self.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::DeleteResource {
+                        timestamp: timestamp.clone(),
+                        name: name.clone(),
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::RenameResource { timestamp, old_name, new_name } => {
+                self.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::RenameResource {
+                        timestamp: timestamp.clone(),
+                        old_name: new_name.clone(),
+                        new_name: old_name.clone(),
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::SwitchTeam { timestamp, resource_name, new_team_name } => {
+                self.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::SwitchTeam {
+                        timestamp: timestamp.clone(),
+                        resource_name: resource_name.clone(),
+                        new_team_name: new_team_name.clone(),
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::DeleteResource { timestamp, name } => {
+                let current_team_name = self.get_team_name(&name);
+                self.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::CreateResource {
+                        timestamp: timestamp.clone(),
+                        name: name.clone(),
+                        team_name: current_team_name.unwrap(),
                     },
                     redo_command: command,
                 });
@@ -324,10 +401,24 @@ impl Application {
                 }
 
                 let team_id = self.next_team_id();
-                self.flow_state.teams.insert(team_id, Team {
-                    name,
-                    resources: BTreeSet::new(),
-                });
+                self.flow_state.teams.insert(team_id, Team::new(name.clone()));
+            }
+            Command::RenameTeam { old_name, new_name, .. } => {
+                let team_id = self.flow_state.teams.iter()
+                    .find(|(_, team)| team.name == old_name)
+                    .map(|(id, _)| *id);
+
+                if team_id.is_none() {
+                    return Err(format!("No team found with the name '{}'", old_name));
+                }
+
+                let team_id = team_id.unwrap();
+                if self.flow_state.teams.values().any(|team| team.name == new_name) {
+                    return Err(format!("A team with the name '{}' already exists", new_name));
+                }
+                if let Some(team) = self.flow_state.teams.get_mut(&team_id) {
+                    team.name = new_name;
+                }
             }
             Command::DeleteTeam { name, .. } => {
                 let team_id = self.flow_state.teams.iter()
@@ -338,6 +429,96 @@ impl Application {
                     self.flow_state.teams.remove(&team_id);
                 } else {
                     return Err(format!("No team found with the name '{}'", name));
+                }
+            }
+            Command::CreateResource { name, team_name, .. } => {
+                if self.flow_state.resources.values().any(|res| res.name == name) {
+                    return Err(format!("A resource with the name '{}' already exists", name));
+                }
+
+                let team_id = self.flow_state.teams.iter()
+                    .find(|(_, team)| team.name == team_name)
+                    .map(|(id, _)| *id);
+
+                if team_id.is_none() {
+                    return Err(format!("No team found with the name '{}'", team_name));
+                }
+
+                let resource_id = self.next_resource_id();
+                self.flow_state.resources.insert(resource_id, Resource::new(name.clone(), team_id.unwrap()));
+
+                if let Some(team) = self.flow_state.teams.get_mut(&team_id.unwrap()) {
+                    team.resources.insert(resource_id);
+                }
+            }
+            Command::RenameResource { old_name, new_name, .. } => {
+                let resource_id = self.flow_state.resources.iter()
+                    .find(|(_, res)| res.name == old_name)
+                    .map(|(id, _)| *id);
+
+                if resource_id.is_none() {
+                    return Err(format!("No resource found with the name '{}'", old_name));
+                }
+
+                let resource_id = resource_id.unwrap();
+                if self.flow_state.resources.values().any(|res| res.name == new_name) {
+                    return Err(format!("A resource with the name '{}' already exists", new_name));
+                }
+                if let Some(resource) = self.flow_state.resources.get_mut(&resource_id) {
+                    resource.name = new_name;
+                }
+            }
+            Command::SwitchTeam { resource_name, new_team_name, .. } => {
+                let resource_id = self.flow_state.resources.iter()
+                    .find(|(_, res)| res.name == resource_name)
+                    .map(|(id, _)| *id);
+
+                if resource_id.is_none() {
+                    return Err(format!("No resource found with the name '{}'", resource_name));
+                }
+
+                let resource_id = resource_id.unwrap();
+
+                let new_team_id = self.flow_state.teams.iter()
+                    .find(|(_, team)| team.name == new_team_name)
+                    .map(|(id, _)| *id);
+
+                if new_team_id.is_none() {
+                    return Err(format!("No team found with the name '{}'", new_team_name));
+                }
+
+                let new_team_id = new_team_id.unwrap();
+
+                let current_team_id = self.flow_state.resources.get(&resource_id)
+                    .map(|res| res.team_id);
+
+                if let Some(current_team_id) = current_team_id {
+                    if let Some(current_team) = self.flow_state.teams.get_mut(&current_team_id) {
+                        current_team.resources.remove(&resource_id);
+                    }
+                }
+
+                if let Some(new_team) = self.flow_state.teams.get_mut(&new_team_id) {
+                    new_team.resources.insert(resource_id);
+                }
+
+                if let Some(resource) = self.flow_state.resources.get_mut(&resource_id) {
+                    resource.team_id = new_team_id;
+                }
+            }
+            Command::DeleteResource { name, .. } => {
+                let resource_id = self.flow_state.resources.iter()
+                    .find(|(_, res)| res.name == name)
+                    .map(|(id, _)| *id);
+
+                if let Some(resource_id) = resource_id {
+                    if let Some(resource) = self.flow_state.resources.remove(&resource_id) {
+                        if let Some(team) = self.flow_state.teams.get_mut(&resource.team_id) {
+                            team.resources.remove(&resource_id);
+                        }
+                    }
+                } else {
+                    return Err(format!("No resource found with the name '{}'", name));
                 }
             }
             // Handle other commands similarly...
@@ -373,6 +554,14 @@ impl Application {
         self.num_commands_applied += 1;
         Ok(())
     }
+
+    fn get_team_name(&self, resource_name: &ResourceName) -> Option<TeamName> {
+        self.flow_state.resources.iter()
+            .find(|(_, res)| res.name == *resource_name)
+            .and_then(|(_, res)| self.flow_state.teams.get(&res.team_id))
+            .map(|team| team.name.clone())
+    }
+
 }
 
 #[cfg(test)]
@@ -423,5 +612,57 @@ mod tests {
         let redo_result = app.redo();
         assert!(redo_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == "Development"));
+    }
+
+    #[test]
+    fn test_create_rename_delete_team() {
+        let mut app = Application::new();
+        let timestamp = Utc::now();
+        let team_name = "Development".to_string();
+        let new_team_name = "Engineering".to_string();
+
+        let create_result = app.invoke_command(Command::CreateTeam { timestamp, name: team_name.clone() });
+        assert!(create_result.is_ok());
+        assert!(app.flow_state.teams.values().any(|team| team.name == team_name));
+
+        let rename_result = app.invoke_command(Command::RenameTeam { timestamp, old_name: team_name.clone(), new_name: new_team_name.clone() });
+        assert!(rename_result.is_ok());
+        assert!(app.flow_state.teams.values().any(|team| team.name == new_team_name));
+
+        let delete_result = app.invoke_command(Command::DeleteTeam { timestamp, name: new_team_name.clone() });
+        assert!(delete_result.is_ok());
+        assert!(!app.flow_state.teams.values().any(|team| team.name == new_team_name));
+    }
+
+    #[test]
+    fn test_create_rename_switch_team_delete_resource() {
+        let mut app = Application::new();
+        let timestamp = Utc::now();
+        let team_name = "Development".to_string();
+        let resource_name = "Alice".to_string();
+        let new_team_name = "Engineering".to_string();
+
+        let create_team_result = app.invoke_command(Command::CreateTeam { timestamp, name: team_name.clone() });
+        assert!(create_team_result.is_ok());
+        assert!(app.flow_state.teams.values().any(|team| team.name == team_name));
+
+        let create_resource_result = app.invoke_command(Command::CreateResource { timestamp, name: resource_name.clone(), team_name: team_name.clone() });
+        assert!(create_resource_result.is_ok());
+        assert!(app.flow_state.resources.values().any(|res| res.name == resource_name));
+
+        let rename_team_result = app.invoke_command(Command::RenameTeam { timestamp, old_name: team_name.clone(), new_name: new_team_name.clone() });
+        assert!(rename_team_result.is_ok());
+        assert!(app.flow_state.teams.values().any(|team| team.name == new_team_name));
+
+        let switch_team_result = app.invoke_command(Command::SwitchTeam { timestamp, resource_name: resource_name.clone(), new_team_name: new_team_name.clone() });
+        assert!(switch_team_result.is_ok());
+        
+        if let Some(resource) = app.flow_state.resources.get(&1) {
+            assert_eq!(resource.team_id, 1); // Assuming the new team's ID is 1
+        }
+
+        let delete_resource_result = app.invoke_command(Command::DeleteResource { timestamp, name: resource_name.clone() });
+        assert!(delete_resource_result.is_ok());
+        assert!(!app.flow_state.resources.values().any(|res| res.name == resource_name));
     }
 }
