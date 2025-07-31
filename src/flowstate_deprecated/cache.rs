@@ -1,7 +1,7 @@
 use chrono::{Local, Duration, NaiveDate};
 use std::collections::{BTreeMap};
 
-use crate::flowstate::*;
+use crate::flowstate_deprecated::*;
 
 #[derive(Debug, Clone)]
 pub struct Level1Cache {
