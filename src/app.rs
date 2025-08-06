@@ -152,7 +152,6 @@ type TeamId = u64;
 type ResourceId = u64;
 type LabelId = u64;
 type FilterId = u64;
-
 #[derive(Debug, Clone)]
 struct Absence {
     start_date: NaiveDate,
@@ -207,8 +206,7 @@ struct Task {
 }
 
 impl Task {
-    fn new(timestamp: DateTime<Utc>, id: TaskId, ticket: String, title: String,
-            duration: Duration) -> Self {
+    fn new(timestamp: DateTime<Utc>, id: TaskId, ticket: String, title: String, duration: Duration) -> Self {
         Self {
             id,
             ticket,
@@ -375,11 +373,8 @@ impl Application {
                     redo_command: command,
                 });
             }
-            Command::CreateTask { timestamp, id, ticket, title, duration } => {
-                let task = Task::new(timestamp.clone(), *id, ticket.clone(), title.clone(), duration.clone());
-                self.flow_state.tasks.insert(*id, task);
-                self.flow_state.unassigned_tasks.insert(*id);
-
+            Command::CreateTask { timestamp, id, .. } => {
+                self.flow_state.execute_command(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::DeleteTask {
                         timestamp: timestamp.clone(),
@@ -389,39 +384,247 @@ impl Application {
                 });
             }
             Command::UpdateTask { timestamp, id, ticket, title, duration } => {
-                if let Some(task) = self.flow_state.tasks.get_mut(id) {
-                    task.ticket = ticket.clone();
-                    task.title = title.clone();
-                    task.duration = duration.clone();
-                } else {
-                    return Err(format!("Task with id {} not found", id));
-                }
+                if let Some(task) = self.flow_state.tasks.get(&id) {
+                    let original_ticket = task.ticket.clone();
+                    let original_title = task.title.clone();
+                    let original_duration = task.duration.clone();
 
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::UpdateTask {
-                        timestamp: timestamp.clone(),
-                        id: *id,
-                        ticket: task.ticket.clone(),
-                        title: task.title.clone(),
-                        duration: task.duration.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::DeleteTask { timestamp, id } => {
-                if let Some(task) = self.flow_state.tasks.remove(id) {
+                    self.flow_state.execute_command(command.clone())?;
                     self.append_to_command_history(CommandRecord {
-                        undo_command: Command::CreateTask {
+                        undo_command: Command::UpdateTask {
                             timestamp: timestamp.clone(),
                             id: *id,
-                            ticket: task.ticket.clone(),
-                            title: task.title.clone(),
-                            duration: task.duration.clone(),
+                            ticket: original_ticket,
+                            title: original_title,
+                            duration: original_duration,
                         },
                         redo_command: command,
                     });
                 } else {
                     return Err(format!("Task with id {} not found", id));
+                }
+            }
+            Command::DeleteTask { timestamp, id } => {
+                if let Some(task) = self.flow_state.tasks.get(&id) {
+                    let ticket = task.ticket.clone();
+                    let title = task.title.clone();
+                    let duration = task.duration.clone();
+
+                    self.flow_state.execute_command(command.clone())?;
+                    self.append_to_command_history(CommandRecord {
+                        undo_command: Command::CreateTask {
+                            timestamp: timestamp.clone(),
+                            id: *id,
+                            ticket,
+                            title,
+                            duration,
+                        },
+                        redo_command: command,
+                    });
+                } else {
+                    return Err(format!("Task with id {} not found", id));
+                }
+            }
+            Command::AssignTask { timestamp, task_id, resource_name } => {
+                self.flow_state.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::UnassignTask {
+                        timestamp: timestamp.clone(),
+                        task_id: *task_id,
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::UnassignTask { timestamp, task_id } => {
+                if let Some(task) = self.flow_state.tasks.get(&task_id) {
+                    let resource_name = self.flow_state.resources.get(&task.assignee.unwrap())
+                        .map(|res| res.name.clone())
+                        .unwrap_or_default();
+
+                    self.flow_state.execute_command(command.clone())?;
+                    self.append_to_command_history(CommandRecord {
+                        undo_command: Command::AssignTask {
+                            timestamp: timestamp.clone(),
+                            task_id: *task_id,
+                            resource_name,
+                        },
+                        redo_command: command,
+                    });
+                } else {
+                    return Err(format!("Task with id {} not found", task_id));
+                }
+            }
+            Command::AddWatcher { timestamp, task_id, resource_name } => {
+                self.flow_state.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::RemoveWatcher {
+                        timestamp: timestamp.clone(),
+                        task_id: *task_id,
+                        resource_name: resource_name.clone(),
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::RemoveWatcher { timestamp, task_id, resource_name } => {
+                if let Some(task) = self.flow_state.tasks.get(&task_id) {
+                    self.flow_state.execute_command(command.clone())?;
+                    self.append_to_command_history(CommandRecord {
+                        undo_command: Command::AddWatcher {
+                            timestamp: timestamp.clone(),
+                            task_id: *task_id,
+                            resource_name: resource_name.clone(),
+                        },
+                        redo_command: command,
+                    });
+                } else {
+                    return Err(format!("Task with id {} not found", task_id));
+                }
+            }
+            Command::CreateLabel { timestamp, name } => {
+                self.flow_state.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::DeleteLabel {
+                        timestamp: timestamp.clone(),
+                        name: name.clone(),
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::RenameLabel { timestamp, old_name, new_name } => {
+                self.flow_state.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::RenameLabel {
+                        timestamp: timestamp.clone(),
+                        old_name: new_name.clone(),
+                        new_name: old_name.clone(),
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::DeleteLabel { timestamp, name } => {
+                self.flow_state.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::CreateLabel {
+                        timestamp: timestamp.clone(),
+                        name: name.clone(),
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::CreateFilter { timestamp, name, labels } => {
+                self.flow_state.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::DeleteFilter {
+                        timestamp: timestamp.clone(),
+                        name: name.clone(),
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::RenameFilter { timestamp, old_name, new_name } => {
+                self.flow_state.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::RenameFilter {
+                        timestamp: timestamp.clone(),
+                        old_name: new_name.clone(),
+                        new_name: old_name.clone(),
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::DeleteFilter { timestamp, name } => {
+                self.flow_state.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::CreateFilter {
+                        timestamp: timestamp.clone(),
+                        name: name.clone(),
+                        labels: Vec::new(),
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::SetWorklog { timestamp, task_id, date, resource_name, fraction } => {
+                let resource_id = self.flow_state.resources.iter()
+                    .find(|(_, res)| res.name == *resource_name)
+                    .map(|(id, _)| *id);
+                if resource_id.is_none() {
+                    return Err(format!("No resource found with the name '{}'", resource_name));
+                }
+                let resource_id = resource_id.unwrap();
+                let current_worklog = self.flow_state.worklogs
+                    .get(task_id)
+                    .and_then(|resource_map| resource_map.get(&resource_id))
+                    .and_then(|date_map| date_map.get(date))
+                    .cloned();
+
+                let undo_worklog = current_worklog.unwrap_or(Worklog {
+                    task_id: *task_id,
+                    date: *date,
+                    resource_id: resource_id.clone(),
+                    fraction: 0,
+                });
+
+                self.flow_state.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::SetWorklog {
+                        timestamp: timestamp.clone(),
+                        task_id: *task_id,
+                        date: *date,
+                        resource_name: resource_name.clone(),
+                        fraction: undo_worklog.fraction,
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::SetAbsence { timestamp, resource_name, start_date, days } => {
+                let resource_id = self.flow_state.resources.iter()
+                    .find(|(_, res)| res.name == *resource_name)
+                    .map(|(id, _)| *id);
+                if resource_id.is_none() {
+                    return Err(format!("No resource found with the name '{}'", resource_name));
+                }
+                let resource_id = resource_id.unwrap();
+
+                self.flow_state.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::SetAbsence {
+                        timestamp: timestamp.clone(),
+                        resource_name: resource_name.clone(),
+                        start_date: start_date.clone(),
+                        days: Duration { days: 0, fraction: 0 },
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::AddMilestone { timestamp, title, date } => {
+                let milestone = Milestone {
+                    date: date.clone(),
+                    title: title.clone(),
+                };
+                self.flow_state.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::RemoveMilestone {
+                        timestamp: timestamp.clone(),
+                        title: title.clone(),
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::RemoveMilestone { timestamp, title } => {
+                if let Some(milestone) = self.flow_state.milestones.iter()
+                    .find(|m| m.title == *title)
+                    .cloned() {
+                    self.flow_state.execute_command(command.clone())?;
+                    self.append_to_command_history(CommandRecord {
+                        undo_command: Command::AddMilestone {
+                            timestamp: timestamp.clone(),
+                            title: milestone.title,
+                            date: milestone.date,
+                        },
+                        redo_command: command,
+                    });
+                } else {
+                    return Err(format!("No milestone found with the title '{}'", title));
                 }
             }
             _ => return Err("Command not implemented".to_string()),
@@ -593,14 +796,207 @@ impl FlowState {
                     return Err(format!("No resource found with the name '{}'", name));
                 }
             },
-            Command::CreateTask { id, ticket, title, duration, .. } => {
-                
+            Command::CreateTask { timestamp, id, ticket, title, duration, .. } => {
+                let task = Task::new(timestamp, id, ticket, title, duration);
+                self.tasks.insert(id, task);
+                self.unassigned_tasks.insert(id);
             }
             Command::UpdateTask { id, ticket, title, duration, .. } => {
-                
+                if let Some(task) = self.tasks.get_mut(&id) {
+                    task.ticket = ticket;
+                    task.title = title;
+                    task.duration = duration;
+                } else {
+                    return Err(format!("Task with id {} not found", id));
+                }
             }
             Command::DeleteTask { id, .. } => {
-                
+                if let Some(task) = self.tasks.remove(&id) {
+                    if let Some(resource) = self.resources.get_mut(&task.assignee.unwrap()) {
+                        resource.assigned_tasks.remove(&id);
+                    }
+                } else {
+                    return Err(format!("Task with id {} not found", id));
+                }
+            }
+            Command::AssignTask { task_id, resource_name, .. } => {
+                let resource_id = self.resources.iter()
+                    .find(|(_, res)| res.name == resource_name)
+                    .map(|(id, _)| *id);
+
+                if resource_id.is_none() {
+                    return Err(format!("No resource found with the name '{}'", resource_name));
+                }
+
+                let resource_id = resource_id.unwrap();
+
+                if let Some(task) = self.tasks.get_mut(&task_id) {
+                    task.assignee = Some(resource_id);
+                    if let Some(resource) = self.resources.get_mut(&resource_id) {
+                        resource.assigned_tasks.insert(task_id);
+                    }
+                } else {
+                    return Err(format!("Task with id {} not found", task_id));
+                }
+            }
+            Command::UnassignTask { task_id, .. } => {
+                if let Some(task) = self.tasks.get_mut(&task_id) {
+                    if let Some(resource_id) = task.assignee {
+                        if let Some(resource) = self.resources.get_mut(&resource_id) {
+                            resource.assigned_tasks.remove(&task_id);
+                        }
+                    }
+                    task.assignee = None;
+                } else {
+                    return Err(format!("Task with id {} not found", task_id));
+                }
+            }
+            Command::AddWatcher { task_id, resource_name, .. } => {
+                let resource_id = self.resources.iter()
+                    .find(|(_, res)| res.name == resource_name)
+                    .map(|(id, _)| *id);
+
+                if resource_id.is_none() {
+                    return Err(format!("No resource found with the name '{}'", resource_name));
+                }
+
+                let resource_id = resource_id.unwrap();
+
+                if let Some(task) = self.tasks.get_mut(&task_id) {
+                    task.watchers.insert(resource_id);
+                    if let Some(resource) = self.resources.get_mut(&resource_id) {
+                        resource.watched_tasks.insert(task_id);
+                    }
+                } else {
+                    return Err(format!("Task with id {} not found", task_id));
+                }
+            }
+            Command::RemoveWatcher { task_id, resource_name, .. } => {
+                let resource_id = self.resources.iter()
+                    .find(|(_, res)| res.name == resource_name)
+                    .map(|(id, _)| *id);
+
+                if resource_id.is_none() {
+                    return Err(format!("No resource found with the name '{}'", resource_name));
+                }
+
+                let resource_id = resource_id.unwrap();
+
+                if let Some(task) = self.tasks.get_mut(&task_id) {
+                    task.watchers.remove(&resource_id);
+                    if let Some(resource) = self.resources.get_mut(&resource_id) {
+                        resource.watched_tasks.remove(&task_id);
+                    }
+                } else {
+                    return Err(format!("Task with id {} not found", task_id));
+                }
+            }
+            Command::CreateLabel { name, .. } => {
+                if self.labels.values().any(|label| label.name == name) {
+                    return Err(format!("A label with the name '{}' already exists", name));
+                }
+
+                let label_id = self.next_label_id();
+                self.labels.insert(label_id, Label { name: name.clone() });
+            }
+            Command::RenameLabel { old_name, new_name, .. } => {
+                let label_id = self.labels.iter()
+                    .find(|(_, label)| label.name == old_name)
+                    .map(|(id, _)| *id);
+                if label_id.is_none() {
+                    return Err(format!("No label found with the name '{}'", old_name));
+                }
+                let label_id = label_id.unwrap();
+                self.labels.insert(label_id, Label { name: new_name.clone() });
+            }
+            Command::DeleteLabel { name, .. } => {
+                let label_id = self.labels.iter()
+                    .find(|(_, label)| label.name == name)
+                    .map(|(id, _)| *id);
+                if let Some(label_id) = label_id {
+                    self.labels.remove(&label_id);
+                } else {
+                    return Err(format!("No label found with the name '{}'", name));
+                }
+            }
+            Command::CreateFilter { name, labels, .. } => {
+                if self.filters.values().any(|filter| filter.name == name) {
+                    return Err(format!("A filter with the name '{}' already exists", name));
+                }
+
+                let label_ids: BTreeSet<LabelId> = labels.iter()
+                    .filter_map(|label_name| {
+                        self.get_label_id(label_name).or_else(|| {
+                            eprintln!("Warning: Label '{}' not found", label_name);
+                            None
+                        })
+                    })
+                    .collect();
+                let filter_id = self.next_filter_id();
+                self.filters.insert(filter_id, Filter { name: name.clone(), labels: label_ids });
+            }
+            Command::RenameFilter { old_name, new_name, .. } => {
+                let filter_id = self.filters.iter()
+                    .find(|(_, filter)| filter.name == old_name)
+                    .map(|(id, _)| *id);
+                if filter_id.is_none() {
+                    return Err(format!("No filter found with the name '{}'", old_name));
+                }
+                let filter_id = filter_id.unwrap();
+                if self.filters.values().any(|filter| filter.name == new_name) {
+                    return Err(format!("A filter with the name '{}' already exists", new_name));
+                }
+                if let Some(filter) = self.filters.get_mut(&filter_id) {
+                    filter.name = new_name;
+                }
+            }
+            Command::DeleteFilter { name, .. } => {
+                let filter_id = self.filters.iter()
+                    .find(|(_, filter)| filter.name == name)
+                    .map(|(id, _)| *id);
+                if let Some(filter_id) = filter_id {
+                    self.filters.remove(&filter_id);
+                } else {
+                    return Err(format!("No filter found with the name '{}'", name));
+                }
+            }
+            Command::SetWorklog { task_id, date, resource_name, fraction, .. } => {
+                let resource_id = self.resources.iter()
+                    .find(|(_, res)| res.name == resource_name)
+                    .map(|(id, _)| *id);
+
+                if resource_id.is_none() {
+                    return Err(format!("No resource found with the name '{}'", resource_name));
+                }
+
+                let resource_id = resource_id.unwrap();
+
+                if fraction == 0 {
+                    if let Some(resource_map) = self.worklogs.get_mut(&task_id) {
+                        if let Some(date_map) = resource_map.get_mut(&resource_id) {
+                            date_map.remove(&date);
+                            if date_map.is_empty() {
+                                resource_map.remove(&resource_id);
+                            }
+                        }
+                        if resource_map.is_empty() {
+                            self.worklogs.remove(&task_id);
+                        }
+                    }
+                } else {
+                    let worklog = Worklog {
+                        task_id,
+                        date,
+                        resource_id,
+                        fraction,
+                    };
+
+                    self.worklogs.entry(task_id)
+                        .or_default()
+                        .entry(resource_id)
+                        .or_default()
+                        .insert(date, worklog);
+                }
             }
             Command::CompoundCommand { timestamp, commands } => {
                 let mut flow_state_clone = self.clone();
@@ -608,6 +1004,51 @@ impl FlowState {
                     flow_state_clone.execute_command(cmd.clone())?;
                 }
                 *self = flow_state_clone;
+            }
+            Command::SetAbsence { resource_name, start_date, days, .. } => {
+                let resource_id = self.resources.iter()
+                    .find(|(_, res)| res.name == resource_name)
+                    .map(|(id, _)| *id);
+
+                if resource_id.is_none() {
+                    return Err(format!("No resource found with the name '{}'", resource_name));
+                }
+
+                let resource_id = resource_id.unwrap();
+                let absence = Absence {
+                    start_date,
+                    duration: days,
+                };
+
+                self.resources.get_mut(&resource_id)
+                    .ok_or_else(|| format!("Resource with id {} not found", resource_id))?
+                    .absences.push(absence);
+
+                todo!("Implement updating the absence")
+            }
+            Command::AddMilestone { timestamp, title, date } => {
+                let milestone = Milestone {
+                    title,
+                    date,
+                };
+                self.milestones.push(milestone.clone());
+                self.date_to_milestones
+                    .entry(date)
+                    .or_insert_with(Vec::new)
+                    .push(milestone);
+            }
+            Command::RemoveMilestone { timestamp, title } => {
+                if let Some(pos) = self.milestones.iter().position(|m| m.title == title) {
+                    let milestone = self.milestones.remove(pos);
+                    if let Some(milestones) = self.date_to_milestones.get_mut(&milestone.date) {
+                        milestones.retain(|m| m.title != title);
+                        if milestones.is_empty() {
+                            self.date_to_milestones.remove(&milestone.date);
+                        }
+                    }
+                } else {
+                    return Err(format!("No milestone found with the title '{}'", title));
+                }
             }
             _ => return Err("Command not implemented".to_string()),
         }
@@ -763,7 +1204,6 @@ mod tests {
         let ticket = "TASK-123".to_string();
         let title = "Implement feature X".to_string();
         let duration = Duration { days: 2, fraction: 50 };
-        let labels = vec!["feature".to_string(), "urgent".to_string()];
 
         let create_task_result = app.invoke_command(
             Command::CreateTask {
@@ -772,7 +1212,6 @@ mod tests {
                 ticket,
                 title: title.clone(),
                 duration,
-                labels
             });
         assert!(create_task_result.is_ok());
         assert!(app.flow_state.tasks.values().any(|task| task.title == title));
