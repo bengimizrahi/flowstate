@@ -100,6 +100,16 @@ enum Command {
         timestamp: DateTime<Utc>,
         name: String,
     },
+    AddLabelToTask{
+        timestamp: DateTime<Utc>,
+        task_id: TaskId,
+        label_name: LabelName,
+    },
+    RemoveLabelFromTask{
+        timestamp: DateTime<Utc>,
+        task_id: TaskId,
+        label_name: LabelName,
+    },
     CreateFilter{
         timestamp: DateTime<Utc>,
         name: FilterName,
@@ -511,6 +521,28 @@ impl Application {
                     redo_command: command,
                 });
             }
+            Command::AddLabelToTask { timestamp, task_id, label_name } => {
+                self.flow_state.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::RemoveLabelFromTask {
+                        timestamp: timestamp.clone(),
+                        task_id: *task_id,
+                        label_name: label_name.clone(),
+                    },
+                    redo_command: command,
+                });
+            }
+            Command::RemoveLabelFromTask { timestamp, task_id, label_name } => {
+                self.flow_state.execute_command(command.clone())?;
+                self.append_to_command_history(CommandRecord {
+                    undo_command: Command::AddLabelToTask {
+                        timestamp: timestamp.clone(),
+                        task_id: *task_id,
+                        label_name: label_name.clone(),
+                    },
+                    redo_command: command,
+                });
+            }
             Command::CreateFilter { timestamp, name, labels } => {
                 self.flow_state.execute_command(command.clone())?;
                 self.append_to_command_history(CommandRecord {
@@ -917,6 +949,32 @@ impl FlowState {
                     self.labels.remove(&label_id);
                 } else {
                     return Err(format!("No label found with the name '{}'", name));
+                }
+            }
+            Command::AddLabelToTask { task_id, label_name, .. } => {
+                let label_id = self.get_label_id(&label_name);
+                if label_id.is_none() {
+                    return Err(format!("No label found with the name '{}'", label_name));
+                }
+                let label_id = label_id.unwrap();
+
+                if let Some(task) = self.tasks.get_mut(&task_id) {
+                    task.label_ids.insert(label_id);
+                } else {
+                    return Err(format!("Task with id {} not found", task_id));
+                }
+            }
+            Command::RemoveLabelFromTask { task_id, label_name, .. } => {
+                let label_id = self.get_label_id(&label_name);
+                if label_id.is_none() {
+                    return Err(format!("No label found with the name '{}'", label_name));
+                }
+                let label_id = label_id.unwrap();
+
+                if let Some(task) = self.tasks.get_mut(&task_id) {
+                    task.label_ids.remove(&label_id);
+                } else {
+                    return Err(format!("Task with id {} not found", task_id));
                 }
             }
             Command::CreateFilter { name, labels, .. } => {
