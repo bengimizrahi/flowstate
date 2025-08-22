@@ -1,23 +1,108 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::ops::{Add, Sub, SubAssign};
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc, Duration};
+use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::Read;
 
-type TeamName = String;
-type ResourceName = String;
-type LabelName = String;
-type FilterName = String;
-type Days = u64;
-type Fraction = u8;
-type TaskId = u64;
+pub type TeamName = String;
+pub type ResourceName = String;
+pub type LabelName = String;
+pub type FilterName = String;
+pub type Days = u64;
+pub type Fraction = u8;
+pub type TaskId = u64;
 
-#[derive(Debug, Clone)]
-struct Duration{
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct TaskDuration {
     pub days: Days,
     pub fraction: Fraction,
 }
 
-#[derive(Debug, Clone)]
-enum Command {
+impl From<TaskDuration> for Fraction {
+    fn from(duration: TaskDuration) -> Self {
+        (duration.days * 100) as Fraction + duration.fraction
+    }
+}
+
+impl Add for TaskDuration {
+    type Output = TaskDuration;
+
+    fn add(self, other: TaskDuration) -> TaskDuration {
+        let total_days = self.days + other.days;
+        let total_fraction = self.fraction + other.fraction;
+        
+        if total_fraction >= 100 {
+            TaskDuration {
+                days: total_days + (total_fraction / 100) as u64,
+                fraction: total_fraction % 100,
+            }
+        } else {
+            TaskDuration {
+                days: total_days,
+                fraction: total_fraction,
+            }
+        }
+    }
+}
+
+impl Sub for TaskDuration {
+    type Output = TaskDuration;
+
+    fn sub(self, other: TaskDuration) -> TaskDuration {
+        let mut total_days = self.days - other.days;
+        let mut total_fraction = self.fraction as i16 - other.fraction as i16;
+
+        if total_fraction < 0 {
+            total_days -= 1;
+            total_fraction += 100;
+        }
+
+        TaskDuration {
+            days: total_days,
+            fraction: total_fraction as u8,
+        }
+    }
+}
+
+impl SubAssign for TaskDuration {
+    fn sub_assign(&mut self, other: TaskDuration) {
+        *self = *self - other;
+    }
+}
+
+impl PartialEq for TaskDuration {
+    fn eq(&self, other: &Self) -> bool {
+        self.days == other.days && self.fraction == other.fraction
+    }
+}
+
+impl Eq for TaskDuration {}
+
+impl PartialOrd for TaskDuration {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TaskDuration {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.days.cmp(&other.days) {
+            std::cmp::Ordering::Equal => self.fraction.cmp(&other.fraction),
+            other => other,
+        }
+    }
+}
+
+impl TaskDuration {
+    pub fn zero() -> Self {
+        TaskDuration { days: 0, fraction: 0 }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Command {
     CreateTeam{
         timestamp: DateTime<Utc>,
         name: TeamName,
@@ -55,14 +140,14 @@ enum Command {
         id: TaskId,
         ticket: String,
         title: String,
-        duration: Duration,
+        duration: TaskDuration,
     },
     UpdateTask{
         timestamp: DateTime<Utc>,
         id: TaskId,
         ticket: String,
         title: String,
-        duration: Duration,
+        duration: TaskDuration,
     },
     DeleteTask{
         timestamp: DateTime<Utc>,
@@ -135,7 +220,7 @@ enum Command {
         timestamp: DateTime<Utc>,
         resource_name: ResourceName,
         start_date: NaiveDate,
-        days: Duration,
+        days: TaskDuration,
     },
     AddMilestone{
         timestamp: DateTime<Utc>,
@@ -146,35 +231,47 @@ enum Command {
         timestamp: DateTime<Utc>,
         title: String,
     },
-    CompoundCommand{
-        timestamp: DateTime<Utc>,
-        commands: Vec<Command>,
-    },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct CommandRecord {
     undo_command: Command,
     redo_command: Command,
 }
 
-type TeamId = u64;
-type ResourceId = u64;
-type LabelId = u64;
-type FilterId = u64;
-#[derive(Debug, Clone)]
-struct Absence {
+pub type TeamId = u64;
+pub type ResourceId = u64;
+pub type LabelId = u64;
+pub type FilterId = u64;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Absence {
     start_date: NaiveDate,
-    duration: Duration,
+    duration: TaskDuration,
 }
 
-#[derive(Debug, Clone)]
-struct Resource {
-    name: ResourceName,
-    team_id: TeamId,
-    assigned_tasks: BTreeSet<TaskId>,
-    watched_tasks: BTreeSet<TaskId>,
-    absences: Vec<Absence>,
+impl Absence {
+    fn intersects(&self, other: &Self) -> bool {
+        let self_end = self.start_date.and_hms_opt(0, 0, 0).unwrap() 
+            + chrono::Duration::days(self.duration.days as i64)
+            + chrono::Duration::minutes((self.duration.fraction as f64 * 24.0 * 60.0 / 100.0) as i64);
+        let other_end = other.start_date.and_hms_opt(0, 0, 0).unwrap()
+            + chrono::Duration::days(other.duration.days as i64) 
+            + chrono::Duration::minutes((other.duration.fraction as f64 * 24.0 * 60.0 / 100.0) as i64);
+
+        let self_start = self.start_date.and_hms_opt(0, 0, 0).unwrap();
+        let other_start = other.start_date.and_hms_opt(0, 0, 0).unwrap();
+
+        self_start < other_end && other_start < self_end
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Resource {
+    pub name: ResourceName,
+    pub team_id: TeamId,
+    pub assigned_tasks: Vec<TaskId>,
+    pub watched_tasks: Vec<TaskId>,
+    pub absences: Vec<Absence>,
 }
 
 impl Resource {
@@ -182,17 +279,17 @@ impl Resource {
         Self {
             name,
             team_id,
-            assigned_tasks: BTreeSet::new(),
-            watched_tasks: BTreeSet::new(),
+            assigned_tasks: Vec::new(),
+            watched_tasks: Vec::new(),
             absences: Vec::new(),
         }
     }
 }
 
-#[derive(Debug, Clone)]
-struct Team {
-    name: TeamName,
-    resources: BTreeSet<ResourceId>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Team {
+    pub name: TeamName,
+    pub resources: BTreeSet<ResourceId>,
 }
 
 impl Team {
@@ -204,19 +301,19 @@ impl Team {
     }
 }
 
-#[derive(Debug, Clone)]
-struct Task {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Task {
     id: TaskId,
     ticket: String,
     title: String,
-    duration: Duration,
+    duration: TaskDuration,
     label_ids: BTreeSet<LabelId>,
     assignee: Option<ResourceId>,
     watchers: BTreeSet<ResourceId>,
 }
 
 impl Task {
-    fn new(timestamp: DateTime<Utc>, id: TaskId, ticket: String, title: String, duration: Duration) -> Self {
+    fn new(_timestamp: DateTime<Utc>, id: TaskId, ticket: String, title: String, duration: TaskDuration) -> Self {
         Self {
             id,
             ticket,
@@ -229,87 +326,81 @@ impl Task {
     }
 }
 
-#[derive(Debug, Clone)]
-struct Label {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Label {
     name: String,
 }
 
-#[derive(Debug, Clone)]
-struct Filter {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Filter {
     name: String,
     labels: BTreeSet<LabelId>,
 }
 
-#[derive(Debug, Clone)]
-struct Worklog {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Worklog {
     task_id: TaskId,
     date: NaiveDate,
     resource_id: ResourceId,
     fraction: Fraction,
 }
 
-#[derive(Debug, Clone)]
-struct Milestone {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Milestone {
     date: NaiveDate,
     title: String,
 }
 
-#[derive(Debug, Clone)]
-struct FlowState {
-    teams: BTreeMap<TeamId, Team>,
-    resources: BTreeMap<ResourceId, Resource>,
-    tasks: BTreeMap<TaskId, Task>,
-    labels: BTreeMap<LabelId, Label>,
-    filters: BTreeMap<FilterId, Filter>,
-    worklogs: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Worklog>>>,
-    milestones: Vec<Milestone>,
-    date_to_milestones: BTreeMap<NaiveDate, Vec<Milestone>>,
-    unassigned_tasks: BTreeSet<TaskId>,
-    resource_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>>,
-
-    next_team_id: TeamId,
-    next_resource_id: ResourceId,
-    next_task_id: TaskId,
-    next_label_id: LabelId,
-    next_filter_id: FilterId,
-}
-
-#[derive(Debug, Clone)]
-pub struct Application {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Project {
+    #[serde(skip)]
+    filename: Option<String>,
     command_stack: Vec<CommandRecord>,
     num_commands_applied: usize,
+    #[serde(skip)]
     flow_state: FlowState,
 }
 
-impl Application {
+impl Project {
     pub fn new() -> Self {
         Self {
+            filename: None,
             command_stack: Vec::new(),
             num_commands_applied: 0,
-            flow_state: FlowState {
-                teams: BTreeMap::new(),
-                resources: BTreeMap::new(),
-                tasks: BTreeMap::new(),
-                labels: BTreeMap::new(),
-                filters: BTreeMap::new(),
-                worklogs: HashMap::new(),
-                milestones: Vec::new(),
-                date_to_milestones: BTreeMap::new(),
-                unassigned_tasks: BTreeSet::new(),
-                resource_alloc_rendering: HashMap::new(),
-                next_team_id: 1,
-                next_resource_id: 1,
-                next_task_id: 1,
-                next_label_id: 1,
-                next_filter_id: 1,
-            },
+            flow_state: FlowState::new(),
         }
     }
 
-    fn invoke_command(&mut self, command: Command) -> Result<(), String> {
+    pub fn load_from_yaml(yaml_filename: &str) -> Result<Self, String> {
+        let mut file = File::open(yaml_filename).map_err(|e| format!("Failed to open YAML file: {}", e))?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).map_err(|e| format!("Failed to read YAML file: {}", e))?;
+
+        let (num_commands_applied, command_stack, ): (usize, Vec<CommandRecord>) =
+            serde_yaml::from_str(&contents).map_err(|e| format!("Failed to deserialize YAML: {}", e))?;
+
+        let flow_state = FlowState::from_commands(&command_stack.iter().take(num_commands_applied)
+            .map(|record| record.redo_command.clone()).collect::<Vec<_>>())
+            .expect("Failed to fast forward flow state");
+        Ok(Self {
+            filename: Some(yaml_filename.to_string()),
+            command_stack,
+            num_commands_applied,
+            flow_state,
+        })
+    }
+
+    pub fn save_to_yaml(&mut self) -> Result<(), String> {
+        let data = (self.num_commands_applied, &self.command_stack);
+        let yaml_string = serde_yaml::to_string(&data).map_err(|e| format!("Failed to serialize to YAML: {}", e))?;
+        std::fs::write(self.filename.as_ref().unwrap(), yaml_string).map_err(|e| format!("Failed to write to file: {}", e))?;
+        Ok(())
+    }
+
+    pub fn invoke_command(&mut self, command: Command) -> Result<(), String> {
         match &command {
             Command::CreateTeam { timestamp, name } => {
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::DeleteTeam {
                         timestamp: timestamp.clone(),
@@ -319,7 +410,7 @@ impl Application {
                 });
             }
             Command::RenameTeam { timestamp, old_name, new_name } => {
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::RenameTeam {
                         timestamp: timestamp.clone(),
@@ -330,7 +421,7 @@ impl Application {
                 });
             }
             Command::DeleteTeam { timestamp,name } => {
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::CreateTeam {
                         timestamp: timestamp.clone(),
@@ -339,8 +430,8 @@ impl Application {
                     redo_command: command,
                 });
             }
-            Command::CreateResource { timestamp, name, team_name } => {
-                self.flow_state.execute_command(command.clone())?;
+            Command::CreateResource { timestamp, name, .. } => {
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::DeleteResource {
                         timestamp: timestamp.clone(),
@@ -350,7 +441,7 @@ impl Application {
                 });
             }
             Command::RenameResource { timestamp, old_name, new_name } => {
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::RenameResource {
                         timestamp: timestamp.clone(),
@@ -361,7 +452,7 @@ impl Application {
                 });
             }
             Command::SwitchTeam { timestamp, resource_name, new_team_name } => {
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::SwitchTeam {
                         timestamp: timestamp.clone(),
@@ -373,7 +464,7 @@ impl Application {
             }
             Command::DeleteResource { timestamp, name } => {
                 let current_team_name = self.flow_state.get_team_name(&name);
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::CreateResource {
                         timestamp: timestamp.clone(),
@@ -384,7 +475,7 @@ impl Application {
                 });
             }
             Command::CreateTask { timestamp, id, .. } => {
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::DeleteTask {
                         timestamp: timestamp.clone(),
@@ -393,13 +484,13 @@ impl Application {
                     redo_command: command,
                 });
             }
-            Command::UpdateTask { timestamp, id, ticket, title, duration } => {
+            Command::UpdateTask { timestamp, id, .. } => {
                 if let Some(task) = self.flow_state.tasks.get(&id) {
                     let original_ticket = task.ticket.clone();
                     let original_title = task.title.clone();
                     let original_duration = task.duration.clone();
 
-                    self.flow_state.execute_command(command.clone())?;
+                    self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                     self.append_to_command_history(CommandRecord {
                         undo_command: Command::UpdateTask {
                             timestamp: timestamp.clone(),
@@ -420,7 +511,7 @@ impl Application {
                     let title = task.title.clone();
                     let duration = task.duration.clone();
 
-                    self.flow_state.execute_command(command.clone())?;
+                    self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                     self.append_to_command_history(CommandRecord {
                         undo_command: Command::CreateTask {
                             timestamp: timestamp.clone(),
@@ -435,8 +526,8 @@ impl Application {
                     return Err(format!("Task with id {} not found", id));
                 }
             }
-            Command::AssignTask { timestamp, task_id, resource_name } => {
-                self.flow_state.execute_command(command.clone())?;
+            Command::AssignTask { timestamp, task_id, .. } => {
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::UnassignTask {
                         timestamp: timestamp.clone(),
@@ -451,7 +542,7 @@ impl Application {
                         .map(|res| res.name.clone())
                         .unwrap_or_default();
 
-                    self.flow_state.execute_command(command.clone())?;
+                    self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                     self.append_to_command_history(CommandRecord {
                         undo_command: Command::AssignTask {
                             timestamp: timestamp.clone(),
@@ -465,7 +556,7 @@ impl Application {
                 }
             }
             Command::AddWatcher { timestamp, task_id, resource_name } => {
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::RemoveWatcher {
                         timestamp: timestamp.clone(),
@@ -476,8 +567,8 @@ impl Application {
                 });
             }
             Command::RemoveWatcher { timestamp, task_id, resource_name } => {
-                if let Some(task) = self.flow_state.tasks.get(&task_id) {
-                    self.flow_state.execute_command(command.clone())?;
+                if let Some(_task) = self.flow_state.tasks.get(&task_id) {
+                    self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                     self.append_to_command_history(CommandRecord {
                         undo_command: Command::AddWatcher {
                             timestamp: timestamp.clone(),
@@ -491,7 +582,7 @@ impl Application {
                 }
             }
             Command::CreateLabel { timestamp, name } => {
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::DeleteLabel {
                         timestamp: timestamp.clone(),
@@ -501,7 +592,7 @@ impl Application {
                 });
             }
             Command::RenameLabel { timestamp, old_name, new_name } => {
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::RenameLabel {
                         timestamp: timestamp.clone(),
@@ -512,7 +603,7 @@ impl Application {
                 });
             }
             Command::DeleteLabel { timestamp, name } => {
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::CreateLabel {
                         timestamp: timestamp.clone(),
@@ -522,7 +613,7 @@ impl Application {
                 });
             }
             Command::AddLabelToTask { timestamp, task_id, label_name } => {
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::RemoveLabelFromTask {
                         timestamp: timestamp.clone(),
@@ -533,7 +624,7 @@ impl Application {
                 });
             }
             Command::RemoveLabelFromTask { timestamp, task_id, label_name } => {
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::AddLabelToTask {
                         timestamp: timestamp.clone(),
@@ -543,8 +634,8 @@ impl Application {
                     redo_command: command,
                 });
             }
-            Command::CreateFilter { timestamp, name, labels } => {
-                self.flow_state.execute_command(command.clone())?;
+            Command::CreateFilter { timestamp, name, .. } => {
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::DeleteFilter {
                         timestamp: timestamp.clone(),
@@ -554,7 +645,7 @@ impl Application {
                 });
             }
             Command::RenameFilter { timestamp, old_name, new_name } => {
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::RenameFilter {
                         timestamp: timestamp.clone(),
@@ -565,7 +656,7 @@ impl Application {
                 });
             }
             Command::DeleteFilter { timestamp, name } => {
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::CreateFilter {
                         timestamp: timestamp.clone(),
@@ -575,7 +666,7 @@ impl Application {
                     redo_command: command,
                 });
             }
-            Command::SetWorklog { timestamp, task_id, date, resource_name, fraction } => {
+            Command::SetWorklog { timestamp, task_id, date, resource_name, .. } => {
                 let resource_id = self.flow_state.resources.iter()
                     .find(|(_, res)| res.name == *resource_name)
                     .map(|(id, _)| *id);
@@ -596,7 +687,7 @@ impl Application {
                     fraction: 0,
                 });
 
-                self.flow_state.execute_command(command.clone())?;
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::SetWorklog {
                         timestamp: timestamp.clone(),
@@ -608,32 +699,37 @@ impl Application {
                     redo_command: command,
                 });
             }
-            Command::SetAbsence { timestamp, resource_name, start_date, days } => {
+            Command::SetAbsence { timestamp, resource_name, start_date, .. } => {
                 let resource_id = self.flow_state.resources.iter()
                     .find(|(_, res)| res.name == *resource_name)
                     .map(|(id, _)| *id);
                 if resource_id.is_none() {
                     return Err(format!("No resource found with the name '{}'", resource_name));
                 }
-                let resource_id = resource_id.unwrap();
 
-                self.flow_state.execute_command(command.clone())?;
+                let absence = self.flow_state.resources.get(&resource_id.unwrap())
+                    .ok_or_else(|| format!("Resource with name '{}' not found", resource_name))?
+                    .absences.iter()
+                    .find(|absence| absence.start_date == *start_date)
+                    .cloned()
+                    .unwrap_or(Absence {
+                        start_date: *start_date,
+                        duration: TaskDuration { days: 0, fraction: 0 },
+                    });
+                let undo_command = Command::SetAbsence {
+                    timestamp: timestamp.clone(),
+                    resource_name: resource_name.clone(),
+                    start_date: absence.start_date.clone(),
+                    days: absence.duration.clone(),
+                };
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
-                    undo_command: Command::SetAbsence {
-                        timestamp: timestamp.clone(),
-                        resource_name: resource_name.clone(),
-                        start_date: start_date.clone(),
-                        days: Duration { days: 0, fraction: 0 },
-                    },
+                    undo_command,
                     redo_command: command,
                 });
             }
-            Command::AddMilestone { timestamp, title, date } => {
-                let milestone = Milestone {
-                    date: date.clone(),
-                    title: title.clone(),
-                };
-                self.flow_state.execute_command(command.clone())?;
+            Command::AddMilestone { timestamp, title, .. } => {
+                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                 self.append_to_command_history(CommandRecord {
                     undo_command: Command::RemoveMilestone {
                         timestamp: timestamp.clone(),
@@ -646,7 +742,7 @@ impl Application {
                 if let Some(milestone) = self.flow_state.milestones.iter()
                     .find(|m| m.title == *title)
                     .cloned() {
-                    self.flow_state.execute_command(command.clone())?;
+                    self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
                     self.append_to_command_history(CommandRecord {
                         undo_command: Command::AddMilestone {
                             timestamp: timestamp.clone(),
@@ -659,28 +755,30 @@ impl Application {
                     return Err(format!("No milestone found with the title '{}'", title));
                 }
             }
-            _ => return Err("Command not implemented".to_string()),
         }
+        self.save_to_yaml()?;
         Ok(())
     }
 
-    fn undo(&mut self) -> Result<(), String> {
+    pub fn undo(&mut self) -> Result<(), String> {
         if self.num_commands_applied == 0 {
             return Err("No commands to undo".to_string());
         }
         let command_record = &self.command_stack[self.num_commands_applied - 1];
-        self.flow_state.execute_command(command_record.undo_command.clone())?;
+        self.flow_state.execute_command_and_rebuild_cache(command_record.undo_command.clone())?;
         self.num_commands_applied -= 1;
+        self.save_to_yaml()?;
         Ok(())
     }
 
-    fn redo(&mut self) -> Result<(), String> {
+    pub fn redo(&mut self) -> Result<(), String> {
         if self.num_commands_applied >= self.command_stack.len() {
             return Err("No commands to redo".to_string());
         }
         let command_record = &self.command_stack[self.num_commands_applied];
-        self.flow_state.execute_command(command_record.redo_command.clone())?;
+        self.flow_state.execute_command_and_rebuild_cache(command_record.redo_command.clone())?;
         self.num_commands_applied += 1;
+        self.save_to_yaml()?;
         Ok(())
     }
 
@@ -692,14 +790,65 @@ impl Application {
         self.num_commands_applied = self.command_stack.len();
     }
 
-    fn next_task_id(&mut self) -> TaskId {
-        let id = self.flow_state.next_task_id;
-        self.flow_state.next_task_id += 1;
-        id
+    pub fn flow_state(&self) -> &FlowState {
+        &self.flow_state
+    }
+
+    pub fn flow_state_mut(&mut self) -> &mut FlowState {
+        &mut self.flow_state
     }
 }
 
+
+#[derive(Debug, Clone)]
+pub struct FlowState {
+    pub teams: BTreeMap<TeamId, Team>,
+    pub resources: BTreeMap<ResourceId, Resource>,
+    pub tasks: BTreeMap<TaskId, Task>,
+    pub labels: BTreeMap<LabelId, Label>,
+    pub filters: BTreeMap<FilterId, Filter>,
+    pub worklogs: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Worklog>>>,
+    pub milestones: Vec<Milestone>,
+    pub flow_state_cache: FlowStateCache,
+
+    next_team_id: TeamId,
+    next_resource_id: ResourceId,
+    next_task_id: TaskId,
+    next_label_id: LabelId,
+    next_filter_id: FilterId,
+}
+
 impl FlowState {
+    fn new() -> Self {
+        let mut flow_state = Self {
+            teams: BTreeMap::new(),
+            resources: BTreeMap::new(),
+            tasks: BTreeMap::new(),
+            labels: BTreeMap::new(),
+            filters: BTreeMap::new(),
+            worklogs: HashMap::new(),
+            milestones: Vec::new(),
+            flow_state_cache: FlowStateCache::new(),
+
+            next_team_id: 1,
+            next_resource_id: 1,
+            next_task_id: 1,
+            next_label_id: 1,
+            next_filter_id: 1,
+        };
+        flow_state.rebuild_cache();
+        flow_state
+    }
+
+    fn from_commands(commands: &Vec<Command>) -> Result<Self, String> {
+        let mut flow_state = FlowState::new();
+        for command in commands {
+            flow_state.execute_command(command.clone())?;
+        }
+        flow_state.rebuild_cache();
+        Ok(flow_state)
+    }
+
     fn execute_command(&mut self, command: Command) -> Result<(), String> {
         match command {
             Command::CreateTeam { name, .. } => {
@@ -831,7 +980,6 @@ impl FlowState {
             Command::CreateTask { timestamp, id, ticket, title, duration, .. } => {
                 let task = Task::new(timestamp, id, ticket, title, duration);
                 self.tasks.insert(id, task);
-                self.unassigned_tasks.insert(id);
             }
             Command::UpdateTask { id, ticket, title, duration, .. } => {
                 if let Some(task) = self.tasks.get_mut(&id) {
@@ -845,7 +993,7 @@ impl FlowState {
             Command::DeleteTask { id, .. } => {
                 if let Some(task) = self.tasks.remove(&id) {
                     if let Some(resource) = self.resources.get_mut(&task.assignee.unwrap()) {
-                        resource.assigned_tasks.remove(&id);
+                        resource.assigned_tasks.retain(|&x| x != id);
                     }
                 } else {
                     return Err(format!("Task with id {} not found", id));
@@ -865,7 +1013,7 @@ impl FlowState {
                 if let Some(task) = self.tasks.get_mut(&task_id) {
                     task.assignee = Some(resource_id);
                     if let Some(resource) = self.resources.get_mut(&resource_id) {
-                        resource.assigned_tasks.insert(task_id);
+                        resource.assigned_tasks.insert(0, task_id);
                     }
                 } else {
                     return Err(format!("Task with id {} not found", task_id));
@@ -875,7 +1023,7 @@ impl FlowState {
                 if let Some(task) = self.tasks.get_mut(&task_id) {
                     if let Some(resource_id) = task.assignee {
                         if let Some(resource) = self.resources.get_mut(&resource_id) {
-                            resource.assigned_tasks.remove(&task_id);
+                            resource.assigned_tasks.retain(|&x| x != task_id);
                         }
                     }
                     task.assignee = None;
@@ -897,7 +1045,7 @@ impl FlowState {
                 if let Some(task) = self.tasks.get_mut(&task_id) {
                     task.watchers.insert(resource_id);
                     if let Some(resource) = self.resources.get_mut(&resource_id) {
-                        resource.watched_tasks.insert(task_id);
+                        resource.watched_tasks.insert(0, task_id);
                     }
                 } else {
                     return Err(format!("Task with id {} not found", task_id));
@@ -917,7 +1065,7 @@ impl FlowState {
                 if let Some(task) = self.tasks.get_mut(&task_id) {
                     task.watchers.remove(&resource_id);
                     if let Some(resource) = self.resources.get_mut(&resource_id) {
-                        resource.watched_tasks.remove(&task_id);
+                        resource.watched_tasks.retain(|&x| x != task_id);
                     }
                 } else {
                     return Err(format!("Task with id {} not found", task_id));
@@ -1056,13 +1204,6 @@ impl FlowState {
                         .insert(date, worklog);
                 }
             }
-            Command::CompoundCommand { timestamp, commands } => {
-                let mut flow_state_clone = self.clone();
-                for cmd in commands {
-                    flow_state_clone.execute_command(cmd.clone())?;
-                }
-                *self = flow_state_clone;
-            }
             Command::SetAbsence { resource_name, start_date, days, .. } => {
                 let resource_id = self.resources.iter()
                     .find(|(_, res)| res.name == resource_name)
@@ -1077,40 +1218,39 @@ impl FlowState {
                     start_date,
                     duration: days,
                 };
-
-                self.resources.get_mut(&resource_id)
-                    .ok_or_else(|| format!("Resource with id {} not found", resource_id))?
-                    .absences.push(absence);
-
-                todo!("Implement updating the absence")
+                if let Some(absences) = self.resources.get_mut(&resource_id).map(|r| &mut r.absences) {
+                    absences.retain(|a| !a.intersects(&absence));
+                    if days > TaskDuration::zero() {
+                        absences.push(absence);
+                    }
+                }
             }
-            Command::AddMilestone { timestamp, title, date } => {
+            Command::AddMilestone { title, date, .. } => {
                 let milestone = Milestone {
                     title,
                     date,
                 };
                 self.milestones.push(milestone.clone());
-                self.date_to_milestones
-                    .entry(date)
-                    .or_insert_with(Vec::new)
-                    .push(milestone);
             }
-            Command::RemoveMilestone { timestamp, title } => {
+            Command::RemoveMilestone { title, .. } => {
                 if let Some(pos) = self.milestones.iter().position(|m| m.title == title) {
-                    let milestone = self.milestones.remove(pos);
-                    if let Some(milestones) = self.date_to_milestones.get_mut(&milestone.date) {
-                        milestones.retain(|m| m.title != title);
-                        if milestones.is_empty() {
-                            self.date_to_milestones.remove(&milestone.date);
-                        }
-                    }
+                    let _milestone = self.milestones.remove(pos);
                 } else {
                     return Err(format!("No milestone found with the title '{}'", title));
                 }
             }
-            _ => return Err("Command not implemented".to_string()),
         }
         Ok(())
+    }
+
+    fn execute_command_and_rebuild_cache(&mut self, command: Command) -> Result<(), String> {
+        self.execute_command(command)?;
+        self.rebuild_cache();
+        Ok(())
+    }
+
+    fn rebuild_cache(&mut self) {
+        self.flow_state_cache = FlowStateCache::from(self);
     }
 
     fn get_team_name(&self, resource_name: &ResourceName) -> Option<TeamName> {
@@ -1138,6 +1278,12 @@ impl FlowState {
         id
     }
     
+    pub fn next_task_id(&mut self) -> TaskId {
+        let id = self.next_task_id;
+        self.next_task_id += 1;
+        id
+    }
+
     fn next_label_id(&mut self) -> LabelId {
         let id = self.next_label_id;
         self.next_label_id += 1;
@@ -1149,6 +1295,169 @@ impl FlowState {
         self.next_filter_id += 1;
         id
     }
+
+    pub fn cache(&self) -> &FlowStateCache {
+        &self.flow_state_cache
+    }
+}
+
+impl Default for FlowState {
+    fn default() -> Self {
+        FlowState::new()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AllocCursor {
+    pub date: NaiveDate,
+    pub alloced_amount: TaskDuration,
+}
+
+impl std::ops::AddAssign<TaskDuration> for AllocCursor {
+    fn add_assign(&mut self, other: TaskDuration) {
+        let new_amount = self.alloced_amount + other;
+        if new_amount.days > 0 {
+            self.date = self.date + Duration::days(new_amount.days as i64);
+            self.alloced_amount = TaskDuration { days: 0, fraction: new_amount.fraction };
+        } else {
+            self.alloced_amount = new_amount;
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FlowStateCache {
+    start_date: NaiveDate,
+    end_date: NaiveDate,
+    date_to_milestones: BTreeMap<NaiveDate, Vec<Milestone>>,
+    unassigned_tasks: Vec<TaskId>,
+    task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>>,
+    pub resource_absence_rendering: HashMap<ResourceId, HashMap<NaiveDate, Fraction>>,
+}
+
+impl FlowStateCache {
+    fn new() -> Self {
+        FlowStateCache {
+            start_date: Utc::now().date_naive(),
+            end_date: Utc::now().date_naive(),
+            date_to_milestones: BTreeMap::new(),
+            unassigned_tasks: Vec::new(),
+            task_alloc_rendering: HashMap::new(),
+            resource_absence_rendering: HashMap::new(),
+        }
+    }
+
+    fn from(flow_state: &FlowState) -> Self {
+        let resource_absence_rendering = flow_state.resources.iter()
+            .map(|(resource_id, resource)| {
+                let absence_map = {
+                    resource.absences.iter().fold(HashMap::new(), |mut acc, absence| {
+                        let start_date = absence.start_date;
+                        let end_date = start_date + Duration::days(absence.duration.days as i64);
+                        for day in start_date.iter_days().take_while(|&d| d <= end_date) {
+                            acc.entry(day).or_insert(100);
+                        }
+                        acc.entry(end_date + Duration::days(1)).or_insert(absence.duration.fraction);
+                        acc
+                    })
+                };
+                (*resource_id, absence_map)
+            })
+            .collect();
+        let date_to_milestones = flow_state.milestones.iter()
+            .fold(BTreeMap::new(), |mut acc, milestone| {
+                acc.entry(milestone.date)
+                    .or_insert_with(Vec::new)
+                    .push(milestone.clone());
+                acc
+            });
+        let unassigned_tasks : Vec<TaskId> = flow_state.tasks.iter()
+            .filter(|(_, task)| task.assignee.is_none())
+            .map(|(id, _)| *id)
+            .collect();
+        let total_worklogs: HashMap<TaskId, TaskDuration> = flow_state.worklogs.iter()
+            .map(|(task_id, resource_map)| {
+                let total = resource_map.values()
+                    .flat_map(|date_map| date_map.values())
+                    .fold(TaskDuration { days: 0, fraction: 0 }, |acc, worklog| {
+                        acc + TaskDuration { days: 0, fraction: worklog.fraction }
+                    });
+                (*task_id, total)
+            })
+            .collect();
+        let remaining_durations: HashMap<TaskId, TaskDuration> = flow_state.tasks.iter()
+            .map(|(task_id, task)| {
+                let total_worklog = total_worklogs.get(task_id)
+                    .cloned()
+                    .unwrap_or(TaskDuration { days: 0, fraction: 0 });
+                (*task_id, task.duration.clone() - total_worklog)
+            })
+            .collect();
+        
+        let mut task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>> = HashMap::new();
+        for (resource_id, resource) in &flow_state.resources {
+            let mut cursor = AllocCursor {
+                date: Utc::now().date_naive(),
+                alloced_amount: TaskDuration { days: 0, fraction: 0 }
+            };
+            for task_id in &resource.assigned_tasks {
+                if let Some(_task) = flow_state.tasks.get(task_id) {
+                    let mut remaining_duration = remaining_durations.get(task_id)
+                        .cloned()
+                        .unwrap_or(TaskDuration { days: 0, fraction: 0 });
+                    while remaining_duration > (TaskDuration { days: 0, fraction: 0 }) {
+                        let remaining_duration_for_current_day = TaskDuration {days: 1, fraction:0} - cursor.alloced_amount;
+                        let work_to_allocate = remaining_duration.min(remaining_duration_for_current_day);
+                        task_alloc_rendering.entry(*task_id).or_insert_with(HashMap::new)
+                            .entry(*resource_id).or_insert_with(HashMap::new)
+                            .insert(cursor.date, work_to_allocate.into());
+                        cursor += work_to_allocate;
+                        remaining_duration -= work_to_allocate;
+                    }
+                }
+            }
+        }
+        let mut start_date = flow_state.milestones.iter()
+            .map(|m| m.date)
+            .min()
+            .unwrap_or(Utc::now().date_naive());
+        start_date = start_date.min(flow_state.worklogs.iter()
+            .flat_map(|(_, resource_map)| resource_map.values())
+            .flat_map(|date_map| date_map.keys())
+            .cloned()
+            .min()
+            .unwrap_or(start_date));
+        start_date = start_date.checked_sub_signed(Duration::days(30))
+            .unwrap_or(NaiveDate::MIN);
+        let mut end_date = flow_state.milestones.iter()
+            .map(|m| m.date)
+            .max()
+            .unwrap_or(Utc::now().date_naive());
+        end_date = end_date.max(flow_state.worklogs.iter()
+            .flat_map(|(_, resource_map)| resource_map.values())
+            .flat_map(|date_map| date_map.keys())
+            .cloned()
+            .max()
+            .unwrap_or(end_date));
+        end_date = end_date.checked_add_signed(Duration::days(30))
+            .unwrap_or(NaiveDate::MAX);
+        FlowStateCache {
+            start_date,
+            end_date,
+            date_to_milestones,
+            unassigned_tasks,
+            task_alloc_rendering: HashMap::new(),
+            resource_absence_rendering,
+        }
+    }
+
+    pub fn day(&self, index: usize) -> NaiveDate {
+        self.start_date + Duration::days(index as i64)
+    }
+
+    pub fn num_days(&self) -> usize {
+        self.end_date.signed_duration_since(self.start_date).num_days() as usize
+    }
 }
 
 #[cfg(test)]
@@ -1157,7 +1466,7 @@ mod tests {
 
     #[test]
     fn test_create_team() {
-        let mut app = Application::new();
+        let mut app = Project::new();
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
@@ -1169,7 +1478,7 @@ mod tests {
 
     #[test]
     fn test_undo_create_team() {
-        let mut app = Application::new();
+        let mut app = Project::new();
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
@@ -1184,7 +1493,7 @@ mod tests {
 
     #[test]
     fn test_undo_redo_create_team() {
-        let mut app = Application::new();
+        let mut app = Project::new();
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
@@ -1203,7 +1512,7 @@ mod tests {
 
     #[test]
     fn test_create_rename_delete_team() {
-        let mut app = Application::new();
+        let mut app = Project::new();
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
         let new_team_name = "Engineering".to_string();
@@ -1223,7 +1532,7 @@ mod tests {
 
     #[test]
     fn test_create_rename_switch_team_delete_resource() {
-        let mut app = Application::new();
+        let mut app = Project::new();
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
         let resource_name = "Alice".to_string();
@@ -1255,13 +1564,13 @@ mod tests {
 
     #[test]
     fn test_undo_redo_create_task() {
-        let mut app = Application::new();
+        let mut app = Project::new();
         
         let timestamp = Utc::now();
-        let task_id = app.next_task_id();
+        let task_id = app.flow_state_mut().next_task_id();
         let ticket = "TASK-123".to_string();
         let title = "Implement feature X".to_string();
-        let duration = Duration { days: 2, fraction: 50 };
+        let duration = TaskDuration { days: 2, fraction: 50 };
 
         let create_task_result = app.invoke_command(
             Command::CreateTask {
@@ -1281,5 +1590,34 @@ mod tests {
         let redo_result = app.redo();
         assert!(redo_result.is_ok());
         assert!(app.flow_state.tasks.values().any(|task| task.title == title));
+    }
+
+    #[test]
+    fn test_create_team_create_resource_save_to_yaml_load_from_yaml() {
+        let mut app = Project::new();
+        let timestamp = Utc::now();
+        let team_name = "Development".to_string();
+        let resource_name = "Alice".to_string();
+
+        // Create a team
+        let create_team_result = app.invoke_command(Command::CreateTeam { timestamp, name: team_name.clone() });
+        assert!(create_team_result.is_ok());
+        assert!(app.flow_state.teams.values().any(|team| team.name == team_name));
+
+        // Create a resource in the team
+        let create_resource_result = app.invoke_command(Command::CreateResource { timestamp, name: resource_name.clone(), team_name: team_name.clone() });
+        assert!(create_resource_result.is_ok());
+        assert!(app.flow_state.resources.values().any(|res| res.name == resource_name));
+
+        // Save to YAML
+        app.save_to_yaml().unwrap();
+
+        // Load from YAML
+        if let Ok(loaded_app) = Project::load_from_yaml("database.yaml") {
+            // Verify loaded state
+            assert!(loaded_app.flow_state.teams.values().any(|team| team.name == team_name));
+            assert!(loaded_app.flow_state.resources.values().any(|res| res.name == resource_name));
+        }
+
     }
 }
