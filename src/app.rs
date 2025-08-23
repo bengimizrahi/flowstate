@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::{Add, Sub, SubAssign};
 
-use chrono::{DateTime, NaiveDate, Utc, Duration};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc, Duration, Datelike};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
@@ -251,17 +251,40 @@ pub struct Absence {
 
 impl Absence {
     fn intersects(&self, other: &Self) -> bool {
-        let self_end = self.start_date.and_hms_opt(0, 0, 0).unwrap() 
-            + chrono::Duration::days(self.duration.days as i64)
-            + chrono::Duration::minutes((self.duration.fraction as f64 * 24.0 * 60.0 / 100.0) as i64);
-        let other_end = other.start_date.and_hms_opt(0, 0, 0).unwrap()
-            + chrono::Duration::days(other.duration.days as i64) 
-            + chrono::Duration::minutes((other.duration.fraction as f64 * 24.0 * 60.0 / 100.0) as i64);
+        let self_end_date = self.get_end_date();
+        let other_end_date = other.get_end_date();
+        self.start_date <= other_end_date.into() && other.start_date <= self_end_date.into()
+    }
 
-        let self_start = self.start_date.and_hms_opt(0, 0, 0).unwrap();
-        let other_start = other.start_date.and_hms_opt(0, 0, 0).unwrap();
-
-        self_start < other_end && other_start < self_end
+    fn get_end_date(&self) -> NaiveDateTime {
+        let mut current_date = self.start_date;
+        let mut remaining_days = self.duration.days;
+        
+        // Skip weekends for full days
+        while remaining_days > 0 {
+            while current_date.weekday() == chrono::Weekday::Sat || current_date.weekday() == chrono::Weekday::Sun {
+                current_date = current_date + Duration::days(1);
+            }
+            remaining_days -= 1;
+            current_date = current_date + Duration::days(1);
+        }
+        
+        // Handle fraction part
+        if self.duration.fraction > 0 {
+            // Skip to next weekday if we're on a weekend
+            while current_date.weekday() == chrono::Weekday::Sat || current_date.weekday() == chrono::Weekday::Sun {
+            current_date = current_date + Duration::days(1);
+            }
+            
+            // Convert fraction to hours (assuming 100 fraction = 24 hours)
+            let fraction_hours = (self.duration.fraction as f64 / 100.0) * 24.0;
+            let fraction_minutes = (fraction_hours * 60.0) as i64;
+            
+            // Start at beginning of day (midnight) and add the fraction time
+            current_date.and_hms_opt(0, 0, 0).unwrap() + Duration::minutes(fraction_minutes)
+        } else {
+            current_date.and_hms_opt(0, 0, 0).unwrap()
+        }
     }
 }
 
@@ -1352,12 +1375,23 @@ impl FlowStateCache {
             .map(|(resource_id, resource)| {
                 let absence_map = {
                     resource.absences.iter().fold(HashMap::new(), |mut acc, absence| {
-                        let start_date = absence.start_date;
-                        let end_date = start_date + Duration::days(absence.duration.days as i64);
-                        for day in start_date.iter_days().take_while(|&d| d <= end_date) {
-                            acc.entry(day).or_insert(100);
+                        let mut current_date = absence.start_date;
+                        let mut remaining_days = absence.duration.days;
+                        
+                        while remaining_days > 0 {
+                            if current_date.weekday() != chrono::Weekday::Sat && current_date.weekday() != chrono::Weekday::Sun {
+                                acc.entry(current_date).or_insert(100);
+                                remaining_days -= 1;
+                            }
+                            current_date = current_date + Duration::days(1);
                         }
-                        acc.entry(end_date + Duration::days(1)).or_insert(absence.duration.fraction);
+                        
+                        if absence.duration.fraction > 0 {
+                            while current_date.weekday() == chrono::Weekday::Sat || current_date.weekday() == chrono::Weekday::Sun {
+                                current_date = current_date + Duration::days(1);
+                            }
+                            acc.entry(current_date).or_insert(absence.duration.fraction);
+                        }
                         acc
                     })
                 };
@@ -1619,5 +1653,18 @@ mod tests {
             assert!(loaded_app.flow_state.resources.values().any(|res| res.name == resource_name));
         }
 
+    }
+
+    #[test]
+    fn test_absence_intersections() {
+        let a1 = Absence {
+            start_date: NaiveDate::from_ymd_opt(2025, 8, 22).unwrap(),
+            duration: TaskDuration { days: 1, fraction: 50 },
+        };
+        let a2 = Absence {
+            start_date: NaiveDate::from_ymd_opt(2025, 8, 25).unwrap(),
+            duration: TaskDuration { days: 0, fraction: 0 },
+        };
+        assert_eq!(a1.intersects(&a2), true);
     }
 }
