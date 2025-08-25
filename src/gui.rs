@@ -375,6 +375,7 @@ impl Gui {
         let expand_task = unsafe {
             imgui::sys::igTreeNodeEx_Str(task_title_cstr.as_ptr(), flags as i32)
         };
+        self.draw_gantt_chart_resources_team_resource_task_popup(ui, task_id, &task);
 
         for i in 1..=self.project.flow_state().cache().num_days() {
             if ui.table_next_column() {
@@ -712,46 +713,45 @@ impl Gui {
     }
 
     fn draw_gantt_chart_resources_team_resource_task_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
-        // if let Some(popup) = ui.begin_popup_context_item() {
-        //     if let Some(_rename_task_menu) = ui.begin_menu("Rename Task") {
-        //         if let Some(child_window) = ui.child_window("##rename_task_menu")
-        //                 .size([140.0, 20.0])
-        //                 .begin() {
-        //             let mut can_rename_task = false;
-        //             if ui.input_text("##new_task_name", &mut self.task_input_text_buffer)
-        //                     .enter_returns_true(true)
-        //                     .hint(task.name.clone())
-        //                     .build() {
-        //                 can_rename_task = !self.task_input_text_buffer.is_empty();
-        //             }
-        //             ui.same_line();
-        //             if ui.button("Ok") {
-        //                 can_rename_task = !self.task_input_text_buffer.is_empty();
-        //             }
-        //             if can_rename_task {
-        //                 ui.close_current_popup();
-        //                 self.project.invoke_command(Command::RenameTask {
-        //                     timestamp: Utc::now(),
-        //                     old_name: task.name.clone(),
-        //                     new_name: self.task_input_text_buffer.clone(),
-        //                 }).unwrap_or_else(|e| {
-        //                     eprintln!("Failed to rename task: {e}");
-        //                 });
-        //                 self.task_input_text_buffer.clear();
-        //             }
-        //             child_window.end();
-        //         }
-        //     }
-        //     if ui.menu_item("Delete Task") {
-        //         self.project.invoke_command(Command::DeleteTask {
-        //             timestamp: Utc::now(),
-        //             id: task.id,
-        //         }).unwrap_or_else(|e| {
-        //             eprintln!("Failed to delete task: {e}");
-        //         });
-        //     }
-        //     popup.end();
-        // }
+        if let Some(popup) = ui.begin_popup_context_item() {
+            if ui.menu_item("Move to top") {
+                ui.close_current_popup();
+            }
+            if ui.menu_item("Move up") {
+                ui.close_current_popup();
+            }
+            if ui.menu_item("Move down") {
+                ui.close_current_popup();
+            }
+            if ui.menu_item("Move to bottom") {
+                ui.close_current_popup();
+            }
+            ui.separator();
+            if let Some(_assign_to_menu) = ui.begin_menu("Assign to") {
+                
+            }
+            if ui.menu_item("Unassign") {
+                ui.close_current_popup();
+            }
+            ui.disabled(false, || {
+                ui.menu_item("Delete");
+            });
+            if let Some(_update_task_menu) = ui.begin_menu("Update Task") {
+
+            }
+            if ui.menu_item("Open in JIRA") {
+                ui.close_current_popup();
+            }
+            ui.separator();
+            if let Some(_update_task_menu) = ui.begin_menu("Labels") {
+
+            }
+            ui.separator();
+            if let Some(_update_task_menu) = ui.begin_menu("Update Duration") {
+
+            }
+            popup.end();
+        }
     }
     
     fn draw_gantt_chart_resources_team_resource_task_content_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
