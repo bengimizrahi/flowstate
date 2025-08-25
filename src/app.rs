@@ -332,8 +332,8 @@ impl Team {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     id: TaskId,
-    ticket: String,
-    title: String,
+    pub ticket: String,
+    pub title: String,
     duration: TaskDuration,
     label_ids: BTreeSet<LabelId>,
     assignee: Option<ResourceId>,
@@ -521,6 +521,7 @@ impl FlowState {
             flow_state.execute_command_and_generate_inverse(command.clone())?;
         }
         flow_state.rebuild_cache();
+        flow_state.reset_ids();
         Ok(flow_state)
     }
 
@@ -1061,6 +1062,14 @@ impl FlowState {
         self.flow_state_cache = FlowStateCache::from(self);
     }
 
+    fn reset_ids(&mut self) {
+        self.next_team_id = self.teams.keys().max().map_or(1, |max_id| max_id + 1);
+        self.next_resource_id = self.resources.keys().max().map_or(1, |max_id| max_id + 1);
+        self.next_task_id = self.tasks.keys().max().map_or(1, |max_id| max_id + 1);
+        self.next_label_id = self.labels.keys().max().map_or(1, |max_id| max_id + 1);
+        self.next_filter_id = self.filters.keys().max().map_or(1, |max_id| max_id + 1);
+    }
+    
     fn get_team_name(&self, resource_name: &ResourceName) -> Option<TeamName> {
         self.resources.iter()
             .find(|(_, res)| res.name == *resource_name)
@@ -1139,7 +1148,7 @@ pub struct FlowStateCache {
     end_date: NaiveDate,
     date_to_milestones: BTreeMap<NaiveDate, Vec<Milestone>>,
     unassigned_tasks: Vec<TaskId>,
-    task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>>,
+    pub task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>>,
     pub resource_absence_rendering: HashMap<ResourceId, HashMap<NaiveDate, Fraction>>,
 }
 
@@ -1225,6 +1234,10 @@ impl FlowStateCache {
                         .cloned()
                         .unwrap_or(TaskDuration { days: 0, fraction: 0 });
                     while remaining_duration > (TaskDuration { days: 0, fraction: 0 }) {
+                        while cursor.date.weekday() == chrono::Weekday::Sat || cursor.date.weekday() == chrono::Weekday::Sun {
+                            cursor.date = cursor.date + Duration::days(1);
+                            cursor.alloced_amount = TaskDuration { days: 0, fraction: 0 };
+                        }
                         let remaining_duration_for_current_day = TaskDuration {days: 1, fraction:0} - cursor.alloced_amount;
                         let work_to_allocate = remaining_duration.min(remaining_duration_for_current_day);
                         task_alloc_rendering.entry(*task_id).or_insert_with(HashMap::new)
@@ -1232,8 +1245,7 @@ impl FlowStateCache {
                             .insert(cursor.date, work_to_allocate.into());
                         cursor += work_to_allocate;
                         remaining_duration -= work_to_allocate;
-                    }
-                }
+                    }}
             }
         }
         let mut start_date = flow_state.milestones.iter()
