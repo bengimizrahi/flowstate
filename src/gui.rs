@@ -192,10 +192,10 @@ impl Gui {
     fn draw_tab_bar(&mut self, ui: &Ui) {
         if let Some(_tab_bar) = ui.tab_bar("##tab_bar") {
             if let Some(_res_tab_item) = ui.tab_item("Resources"){
-                self.draw_resources_tab_gantt_chart(ui);
+                self.draw_gantt_chart_resources(ui);
             }
             if let Some(_task_tab_item) = ui.tab_item("Tasks") {
-                self.draw_tasks_tab_gantt_chart(ui);
+                self.draw_gantt_chart_tasks(ui);
             }
         }
     }
@@ -220,7 +220,7 @@ impl Gui {
         )}
     }
 
-    fn draw_resources_tab_gantt_chart(&mut self, ui: &Ui) {
+    fn draw_gantt_chart_resources(&mut self, ui: &Ui) {
         if self.draw_gantt_chart_table(ui, "##resources_gantt_chart") {
             self.draw_gantt_chart_calendar_row(ui);
             self.draw_gantt_chart_milestones_row(ui);
@@ -229,7 +229,7 @@ impl Gui {
         }
     }
 
-    fn draw_tasks_tab_gantt_chart(&mut self, ui: &Ui) {
+    fn draw_gantt_chart_tasks(&mut self, ui: &Ui) {
         if self.draw_gantt_chart_table(ui, "##tasks_gantt_chart") {
             self.draw_gantt_chart_calendar_row(ui);
             self.draw_gantt_chart_milestones_row(ui);
@@ -311,7 +311,7 @@ impl Gui {
         let expand_team = unsafe {
             imgui::sys::igTreeNodeEx_Str(team_name_cstr.as_ptr(), flags as i32)
         };
-        self.draw_gantt_chart_resources_team_header_column_popup(ui, team_id, &team);
+        self.draw_gantt_chart_resources_team_popup(ui, team_id, &team);
 
         for i in 1..=self.project.flow_state().cache().num_days() {
             if ui.table_next_column() {
@@ -335,7 +335,130 @@ impl Gui {
 
     }
 
-    fn draw_gantt_chart_resources_team_header_column_popup(&mut self, ui: &Ui, team_id: &TeamId, team: &Team) {
+    fn draw_gantt_chart_resources_team_resource(&mut self, ui: &Ui, resource_id: &ResourceId) {
+        ui.table_next_row();
+        ui.table_next_column();
+        let resource = self.project.flow_state().resources.get(resource_id).unwrap().clone();
+        let resource_name_cstr = std::ffi::CString::new(resource.name.clone()).unwrap();
+        let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_DefaultOpen;
+        let expand_resource = unsafe {
+            imgui::sys::igTreeNodeEx_Str(resource_name_cstr.as_ptr(), flags as i32)
+        };
+        self.draw_gantt_chart_resources_team_resource_popup(ui, resource_id, &resource);
+
+        for i in 1..=self.project.flow_state().cache().num_days() {
+            if ui.table_next_column() {
+                let _id = ui.push_id_usize(i);
+                let day = self.project.flow_state().cache().day(i - 1);
+                self.draw_weekend(ui, &day);
+                self.draw_absence(ui, &day, resource_id, &resource);
+                self.draw_milestone(ui, &day);
+                ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
+                self.draw_gantt_chart_resources_team_resource_content_popup(ui, resource_id, &resource, &day);
+            }
+        }
+        if expand_resource {
+            for task_id in resource.assigned_tasks.iter() {
+                self.draw_gantt_chart_resources_team_resource_task(ui, resource_id, &resource, task_id);
+            }
+            unsafe {imgui::sys::igTreePop();}
+        }
+    }
+
+    fn draw_gantt_chart_resources_team_resource_task(&mut self, ui: &Ui, resource_id: &ResourceId, resource: &Resource, task_id: &TaskId) {
+        ui.table_next_row();
+        ui.table_next_column();
+        let _task_token_id = ui.push_id_int(*task_id as i32);
+        let task = self.project.flow_state().tasks.get(task_id).unwrap().clone();
+        let task_title_cstr = std::ffi::CString::new(format!("{} ({})", task.title, task.ticket)).unwrap();
+        let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_Bullet;
+        let expand_task = unsafe {
+            imgui::sys::igTreeNodeEx_Str(task_title_cstr.as_ptr(), flags as i32)
+        };
+
+        for i in 1..=self.project.flow_state().cache().num_days() {
+            if ui.table_next_column() {
+                let _day_token_id = ui.push_id_usize(i);
+                let day = self.project.flow_state().cache().day(i - 1);
+                self.draw_weekend(ui, &day);
+                self.draw_alloc(ui, &day, resource_id, &resource, task_id, &task);
+                self.draw_milestone(ui, &day);
+                ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
+            }
+        }
+        if expand_task {
+            unsafe {imgui::sys::igTreePop();}
+        }
+    }
+
+    fn draw_gantt_chart_tasks_contents(&mut self, ui: &Ui) {
+    
+    }
+
+    fn draw_weekend(&mut self, ui: &Ui, day: &NaiveDate) {
+        if day.weekday() == chrono::Weekday::Sat || day.weekday() == chrono::Weekday::Sun {
+            let bg_color = ui.style_color(StyleColor::TableHeaderBg);
+            ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
+        }
+    }
+
+    fn draw_absence(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, resource: &Resource) {
+        if let Some(absence) = self.project.flow_state().cache().resource_absence_rendering.get(resource_id).and_then(|r| r.get(day)) {
+            let cell_height = unsafe { igGetTextLineHeight() };
+            let cell_width = ui.current_column_width();
+            let cursor_pos = unsafe {
+                let mut pos = ImVec2 { x: 0.0, y: 0.0 };
+                igGetCursorScreenPos(&mut pos);
+                pos
+            };
+
+            // Calculate the height of the absence rectangle based on percentage
+            let absence_height = (cell_height * (*absence as f32 / 100.0)).max(1.0);
+
+            // Draw the absence rectangle from the top of the cell
+            let draw_list = ui.get_window_draw_list();
+            let top_left = [cursor_pos.x, cursor_pos.y];
+            let bottom_right = [cursor_pos.x + cell_width, cursor_pos.y + absence_height];
+            let absence_color = [0.0, 0.0, 0.0, 1.0];
+
+            draw_list.add_rect(top_left, bottom_right, absence_color)
+                .filled(true)
+                .build();
+        }
+    }
+
+    fn draw_alloc(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, resource: &Resource, task_id: &TaskId, task: &Task) {
+        if let Some(alloc) = self.project.flow_state().cache().task_alloc_rendering.get(task_id)
+            .and_then(|r| r.get(resource_id))
+            .and_then(|r| r.get(day)) {
+            let cell_height = unsafe { igGetTextLineHeight() };
+            let cell_width = ui.current_column_width();
+            let cursor_pos = unsafe {
+                let mut pos = ImVec2 { x: 0.0, y: 0.0 };
+                igGetCursorScreenPos(&mut pos);
+                pos
+            };
+
+            // Calculate the height of the allocation rectangle based on percentage
+            let alloc_height = (cell_height * (*alloc as f32 / 100.0)).max(1.0);
+
+            // Draw the allocation rectangle from the bottom of the cell
+            let draw_list = ui.get_window_draw_list();
+            let top_left = [cursor_pos.x, cursor_pos.y + cell_height - alloc_height];
+            let bottom_right = [cursor_pos.x + cell_width, cursor_pos.y + cell_height];
+            let alloc_color = [1.0, 1.0, 1.0, 1.0];
+
+            draw_list.add_rect(top_left, bottom_right, alloc_color)
+                .filled(true)
+                .build();
+        }
+    }
+
+    fn draw_milestone(&mut self, ui: &Ui, day: &NaiveDate) {
+
+    }
+
+    fn draw_gantt_chart_resources_team_popup(&mut self, ui: &Ui, team_id: &TeamId, team: &Team) {
         if let Some(popup) = ui.begin_popup_context_item() {
             if let Some(_rename_team_menu) = ui.begin_menu("Rename Team") {
                 if let Some(child_window) = ui.child_window("##rename_team_menu")
@@ -408,34 +531,7 @@ impl Gui {
         }
     }
 
-    fn draw_gantt_chart_resources_team_resource(&mut self, ui: &Ui, resource_id: &ResourceId) {
-        ui.table_next_row();
-        ui.table_next_column();
-        let resource = self.project.flow_state().resources.get(resource_id).unwrap().clone();
-        let resource_name_cstr = std::ffi::CString::new(resource.name.clone()).unwrap();
-        let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_DefaultOpen;
-        let expand_resource = unsafe {
-            imgui::sys::igTreeNodeEx_Str(resource_name_cstr.as_ptr(), flags as i32)
-        };
-        self.draw_gantt_chart_resources_team_resource_header_column_popup(ui, resource_id, &resource);
-
-        for i in 1..=self.project.flow_state().cache().num_days() {
-            if ui.table_next_column() {
-                let _id = ui.push_id_usize(i);
-                let day = self.project.flow_state().cache().day(i - 1);
-                self.draw_weekend(ui, &day);
-                self.draw_absence(ui, &day, resource_id, &resource);
-                self.draw_milestone(ui, &day);
-                ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
-                self.draw_gantt_chart_resources_team_resource_content_column_popup(ui, resource_id, &resource, &day);
-            }
-        }
-        if expand_resource {
-            unsafe {imgui::sys::igTreePop();}
-        }
-    }
-
-    fn draw_gantt_chart_resources_team_resource_header_column_popup(&mut self, ui: &Ui, resource_id: &ResourceId, resource: &Resource) {
+    fn draw_gantt_chart_resources_team_resource_popup(&mut self, ui: &Ui, resource_id: &ResourceId, resource: &Resource) {
         let is_info_filled_in =
                 |task_title: &str, ticket: &str, duration: f32| {
             !task_title.is_empty() && !ticket.is_empty() && duration > 0.0
@@ -443,7 +539,7 @@ impl Gui {
         if let Some(popup) = ui.begin_popup_context_item() {
             if let Some(_create_task_menu) = ui.begin_menu("Create Task") {
                 if let Some(child_window) = ui.child_window("##create_task_menu")
-                        .size([150.0, 80.0])
+                        .size([150.0, 120.0])
                         .begin() {
                     let mut can_create_task = false;
                     if ui.input_text("##ticket", &mut self.ticket_input_text_buffer)
@@ -464,15 +560,12 @@ impl Gui {
                             &self.ticket_input_text_buffer,
                             self.task_duration_days);
                     }
-                    if ui.slider_config("##duration", 0.1, 30.0)
+                    ui.slider_config("##duration_slider", 0.1, 30.0)
                         .display_format("%.0f days")
-                        .build(&mut self.task_duration_days) {
-                        can_create_task = is_info_filled_in(
-                            &self.task_title_input_text_buffer,
-                            &self.ticket_input_text_buffer,
-                            self.task_duration_days);
-                    }
-                    ui.same_line();
+                        .build(&mut self.task_duration_days);
+                    ui.input_float("##duration_input", &mut self.task_duration_days)
+                        .display_format("%.0f days")
+                        .build();
                     if ui.button("Ok") {
                         can_create_task = is_info_filled_in(
                             &self.task_title_input_text_buffer,
@@ -552,7 +645,7 @@ impl Gui {
         }
     }
 
-    fn draw_gantt_chart_resources_team_resource_content_column_popup(&mut self, ui: &Ui, resource_id: &ResourceId, resource: &Resource, day: &NaiveDate) {
+    fn draw_gantt_chart_resources_team_resource_content_popup(&mut self, ui: &Ui, resource_id: &ResourceId, resource: &Resource, day: &NaiveDate) {
         let is_info_filled_in =
                 |duration: f32| {
             duration > 0.0
@@ -616,46 +709,93 @@ impl Gui {
             }
             popup.end();
         }
-
     }
 
-    fn draw_gantt_chart_tasks_contents(&mut self, ui: &Ui) {
+    fn draw_gantt_chart_resources_team_resource_task_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
+        // if let Some(popup) = ui.begin_popup_context_item() {
+        //     if let Some(_rename_task_menu) = ui.begin_menu("Rename Task") {
+        //         if let Some(child_window) = ui.child_window("##rename_task_menu")
+        //                 .size([140.0, 20.0])
+        //                 .begin() {
+        //             let mut can_rename_task = false;
+        //             if ui.input_text("##new_task_name", &mut self.task_input_text_buffer)
+        //                     .enter_returns_true(true)
+        //                     .hint(task.name.clone())
+        //                     .build() {
+        //                 can_rename_task = !self.task_input_text_buffer.is_empty();
+        //             }
+        //             ui.same_line();
+        //             if ui.button("Ok") {
+        //                 can_rename_task = !self.task_input_text_buffer.is_empty();
+        //             }
+        //             if can_rename_task {
+        //                 ui.close_current_popup();
+        //                 self.project.invoke_command(Command::RenameTask {
+        //                     timestamp: Utc::now(),
+        //                     old_name: task.name.clone(),
+        //                     new_name: self.task_input_text_buffer.clone(),
+        //                 }).unwrap_or_else(|e| {
+        //                     eprintln!("Failed to rename task: {e}");
+        //                 });
+        //                 self.task_input_text_buffer.clear();
+        //             }
+        //             child_window.end();
+        //         }
+        //     }
+        //     if ui.menu_item("Delete Task") {
+        //         self.project.invoke_command(Command::DeleteTask {
+        //             timestamp: Utc::now(),
+        //             id: task.id,
+        //         }).unwrap_or_else(|e| {
+        //             eprintln!("Failed to delete task: {e}");
+        //         });
+        //     }
+        //     popup.end();
+        // }
+    }
     
-    }
-
-    fn draw_weekend(&mut self, ui: &Ui, day: &NaiveDate) {
-        if day.weekday() == chrono::Weekday::Sat || day.weekday() == chrono::Weekday::Sun {
-            let bg_color = ui.style_color(StyleColor::TableHeaderBg);
-            ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
-        }
-    }
-
-    fn draw_absence(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, resource: &Resource) {
-        if let Some(absence) = self.project.flow_state().cache().resource_absence_rendering.get(resource_id).and_then(|r| r.get(day)) {
-            let cell_height = unsafe { igGetTextLineHeight() };
-            let cell_width = ui.current_column_width();
-            let cursor_pos = unsafe {
-                let mut pos = ImVec2 { x: 0.0, y: 0.0 };
-                igGetCursorScreenPos(&mut pos);
-                pos
-            };
-
-            // Calculate the height of the absence rectangle based on percentage
-            let absence_height = (cell_height * (*absence as f32 / 100.0)).max(1.0);
-
-            // Draw the absence rectangle from the top of the cell
-            let draw_list = ui.get_window_draw_list();
-            let top_left = [cursor_pos.x, cursor_pos.y];
-            let bottom_right = [cursor_pos.x + cell_width, cursor_pos.y + absence_height];
-            let absence_color = [0.0, 0.0, 0.0, 1.0];
-
-            draw_list.add_rect(top_left, bottom_right, absence_color)
-                .filled(true)
-                .build();
-        }
-    }
-
-    fn draw_milestone(&mut self, ui: &Ui, day: &NaiveDate) {
-
+    fn draw_gantt_chart_resources_team_resource_task_content_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
+        // if let Some(popup) = ui.begin_popup_context_item() {
+        //     if let Some(_edit_task_menu) = ui.begin_menu("Edit Task") {
+        //         if let Some(child_window) = ui.child_window("##edit_task_menu")
+        //                 .size([140.0, 20.0])
+        //                 .begin() {
+        //             let mut can_edit_task = false;
+        //             if ui.input_text("##edit_task_name", &mut self.task_input_text_buffer)
+        //                     .enter_returns_true(true)
+        //                     .hint(task.name.clone())
+        //                     .build() {
+        //                 can_edit_task = !self.task_input_text_buffer.is_empty();
+        //             }
+        //             ui.same_line();
+        //             if ui.button("Ok") {
+        //                 can_edit_task = !self.task_input_text_buffer.is_empty();
+        //             }
+        //             if can_edit_task {
+        //                 ui.close_current_popup();
+        //                 self.project.invoke_command(Command::EditTask {
+        //                     timestamp: Utc::now(),
+        //                     id: *task_id,
+        //                     new_name: self.task_input_text_buffer.clone(),
+        //                 }).unwrap_or_else(|e| {
+        //                     eprintln!("Failed to edit task: {e}");
+        //                 });
+        //                 self.task_input_text_buffer.clear();
+        //             }
+        //             child_window.end();
+        //         }
+        //     }
+        //     if ui.menu_item("Delete Task") {
+        //         self.project.invoke_command(Command::DeleteTask {
+        //             timestamp: Utc::now(),
+        //             id: task.id,
+        //         }).unwrap_or_else(|e| {
+        //             eprintln!("Failed to delete task: {e}");
+        //         });
+        //     }
+        //     popup.end();
+        // }
     }
 }
+
+
