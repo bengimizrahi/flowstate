@@ -243,6 +243,7 @@ pub type TeamId = u64;
 pub type ResourceId = u64;
 pub type LabelId = u64;
 pub type FilterId = u64;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Absence {
     start_date: NaiveDate,
