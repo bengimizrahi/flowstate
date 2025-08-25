@@ -231,6 +231,10 @@ pub enum Command {
         timestamp: DateTime<Utc>,
         title: String,
     },
+    CompoundCommand{
+        timestamp: DateTime<Utc>,
+        commands: Vec<Command>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -422,364 +426,11 @@ impl Project {
     }
 
     pub fn invoke_command(&mut self, command: Command) -> Result<(), String> {
-        match &command {
-            Command::CreateTeam { timestamp, name } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::DeleteTeam {
-                        timestamp: timestamp.clone(),
-                        name: name.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::RenameTeam { timestamp, old_name, new_name } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::RenameTeam {
-                        timestamp: timestamp.clone(),
-                        old_name: new_name.clone(),
-                        new_name: old_name.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::DeleteTeam { timestamp,name } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::CreateTeam {
-                        timestamp: timestamp.clone(),
-                        name: name.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::CreateResource { timestamp, name, .. } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::DeleteResource {
-                        timestamp: timestamp.clone(),
-                        name: name.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::RenameResource { timestamp, old_name, new_name } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::RenameResource {
-                        timestamp: timestamp.clone(),
-                        old_name: new_name.clone(),
-                        new_name: old_name.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::SwitchTeam { timestamp, resource_name, new_team_name } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::SwitchTeam {
-                        timestamp: timestamp.clone(),
-                        resource_name: resource_name.clone(),
-                        new_team_name: new_team_name.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::DeleteResource { timestamp, name } => {
-                let current_team_name = self.flow_state.get_team_name(&name);
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::CreateResource {
-                        timestamp: timestamp.clone(),
-                        name: name.clone(),
-                        team_name: current_team_name.unwrap(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::CreateTask { timestamp, id, .. } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::DeleteTask {
-                        timestamp: timestamp.clone(),
-                        id: *id,
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::UpdateTask { timestamp, id, .. } => {
-                if let Some(task) = self.flow_state.tasks.get(&id) {
-                    let original_ticket = task.ticket.clone();
-                    let original_title = task.title.clone();
-                    let original_duration = task.duration.clone();
-
-                    self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                    self.append_to_command_history(CommandRecord {
-                        undo_command: Command::UpdateTask {
-                            timestamp: timestamp.clone(),
-                            id: *id,
-                            ticket: original_ticket,
-                            title: original_title,
-                            duration: original_duration,
-                        },
-                        redo_command: command,
-                    });
-                } else {
-                    return Err(format!("Task with id {} not found", id));
-                }
-            }
-            Command::DeleteTask { timestamp, id } => {
-                if let Some(task) = self.flow_state.tasks.get(&id) {
-                    let ticket = task.ticket.clone();
-                    let title = task.title.clone();
-                    let duration = task.duration.clone();
-
-                    self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                    self.append_to_command_history(CommandRecord {
-                        undo_command: Command::CreateTask {
-                            timestamp: timestamp.clone(),
-                            id: *id,
-                            ticket,
-                            title,
-                            duration,
-                        },
-                        redo_command: command,
-                    });
-                } else {
-                    return Err(format!("Task with id {} not found", id));
-                }
-            }
-            Command::AssignTask { timestamp, task_id, .. } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::UnassignTask {
-                        timestamp: timestamp.clone(),
-                        task_id: *task_id,
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::UnassignTask { timestamp, task_id } => {
-                if let Some(task) = self.flow_state.tasks.get(&task_id) {
-                    let resource_name = self.flow_state.resources.get(&task.assignee.unwrap())
-                        .map(|res| res.name.clone())
-                        .unwrap_or_default();
-
-                    self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                    self.append_to_command_history(CommandRecord {
-                        undo_command: Command::AssignTask {
-                            timestamp: timestamp.clone(),
-                            task_id: *task_id,
-                            resource_name,
-                        },
-                        redo_command: command,
-                    });
-                } else {
-                    return Err(format!("Task with id {} not found", task_id));
-                }
-            }
-            Command::AddWatcher { timestamp, task_id, resource_name } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::RemoveWatcher {
-                        timestamp: timestamp.clone(),
-                        task_id: *task_id,
-                        resource_name: resource_name.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::RemoveWatcher { timestamp, task_id, resource_name } => {
-                if let Some(_task) = self.flow_state.tasks.get(&task_id) {
-                    self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                    self.append_to_command_history(CommandRecord {
-                        undo_command: Command::AddWatcher {
-                            timestamp: timestamp.clone(),
-                            task_id: *task_id,
-                            resource_name: resource_name.clone(),
-                        },
-                        redo_command: command,
-                    });
-                } else {
-                    return Err(format!("Task with id {} not found", task_id));
-                }
-            }
-            Command::CreateLabel { timestamp, name } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::DeleteLabel {
-                        timestamp: timestamp.clone(),
-                        name: name.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::RenameLabel { timestamp, old_name, new_name } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::RenameLabel {
-                        timestamp: timestamp.clone(),
-                        old_name: new_name.clone(),
-                        new_name: old_name.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::DeleteLabel { timestamp, name } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::CreateLabel {
-                        timestamp: timestamp.clone(),
-                        name: name.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::AddLabelToTask { timestamp, task_id, label_name } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::RemoveLabelFromTask {
-                        timestamp: timestamp.clone(),
-                        task_id: *task_id,
-                        label_name: label_name.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::RemoveLabelFromTask { timestamp, task_id, label_name } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::AddLabelToTask {
-                        timestamp: timestamp.clone(),
-                        task_id: *task_id,
-                        label_name: label_name.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::CreateFilter { timestamp, name, .. } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::DeleteFilter {
-                        timestamp: timestamp.clone(),
-                        name: name.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::RenameFilter { timestamp, old_name, new_name } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::RenameFilter {
-                        timestamp: timestamp.clone(),
-                        old_name: new_name.clone(),
-                        new_name: old_name.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::DeleteFilter { timestamp, name } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::CreateFilter {
-                        timestamp: timestamp.clone(),
-                        name: name.clone(),
-                        labels: Vec::new(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::SetWorklog { timestamp, task_id, date, resource_name, .. } => {
-                let resource_id = self.flow_state.resources.iter()
-                    .find(|(_, res)| res.name == *resource_name)
-                    .map(|(id, _)| *id);
-                if resource_id.is_none() {
-                    return Err(format!("No resource found with the name '{}'", resource_name));
-                }
-                let resource_id = resource_id.unwrap();
-                let current_worklog = self.flow_state.worklogs
-                    .get(task_id)
-                    .and_then(|resource_map| resource_map.get(&resource_id))
-                    .and_then(|date_map| date_map.get(date))
-                    .cloned();
-
-                let undo_worklog = current_worklog.unwrap_or(Worklog {
-                    task_id: *task_id,
-                    date: *date,
-                    resource_id: resource_id.clone(),
-                    fraction: 0,
-                });
-
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::SetWorklog {
-                        timestamp: timestamp.clone(),
-                        task_id: *task_id,
-                        date: *date,
-                        resource_name: resource_name.clone(),
-                        fraction: undo_worklog.fraction,
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::SetAbsence { timestamp, resource_name, start_date, .. } => {
-                let resource_id = self.flow_state.resources.iter()
-                    .find(|(_, res)| res.name == *resource_name)
-                    .map(|(id, _)| *id);
-                if resource_id.is_none() {
-                    return Err(format!("No resource found with the name '{}'", resource_name));
-                }
-
-                let absence = self.flow_state.resources.get(&resource_id.unwrap())
-                    .ok_or_else(|| format!("Resource with name '{}' not found", resource_name))?
-                    .absences.iter()
-                    .find(|absence| absence.start_date == *start_date)
-                    .cloned()
-                    .unwrap_or(Absence {
-                        start_date: *start_date,
-                        duration: TaskDuration { days: 0, fraction: 0 },
-                    });
-                let undo_command = Command::SetAbsence {
-                    timestamp: timestamp.clone(),
-                    resource_name: resource_name.clone(),
-                    start_date: absence.start_date.clone(),
-                    days: absence.duration.clone(),
-                };
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command,
-                    redo_command: command,
-                });
-            }
-            Command::AddMilestone { timestamp, title, .. } => {
-                self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                self.append_to_command_history(CommandRecord {
-                    undo_command: Command::RemoveMilestone {
-                        timestamp: timestamp.clone(),
-                        title: title.clone(),
-                    },
-                    redo_command: command,
-                });
-            }
-            Command::RemoveMilestone { timestamp, title } => {
-                if let Some(milestone) = self.flow_state.milestones.iter()
-                    .find(|m| m.title == *title)
-                    .cloned() {
-                    self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
-                    self.append_to_command_history(CommandRecord {
-                        undo_command: Command::AddMilestone {
-                            timestamp: timestamp.clone(),
-                            title: milestone.title,
-                            date: milestone.date,
-                        },
-                        redo_command: command,
-                    });
-                } else {
-                    return Err(format!("No milestone found with the title '{}'", title));
-                }
-            }
-        }
+        let undo_command = self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
+        self.append_to_command_history(CommandRecord {
+            undo_command,
+            redo_command: command,
+        });
         self.save_to_yaml()?;
         Ok(())
     }
@@ -1386,13 +1037,24 @@ impl FlowState {
                     return Err(format!("No milestone found with the title '{}'", title));
                 }
             }
+            Command::CompoundCommand { timestamp, commands } => {
+                let mut flow_state_clone = self.clone();
+                let mut undo_commands = Vec::new();
+                for cmd in commands {
+                    let undo_cmd = flow_state_clone.execute_command_and_rebuild_cache(cmd)?;
+                    undo_commands.push(undo_cmd);
+                }
+                undo_commands.reverse();
+                *self = flow_state_clone;
+                Ok(Command::CompoundCommand { timestamp, commands: undo_commands })
+            }
         }
     }
 
-    fn execute_command_and_rebuild_cache(&mut self, command: Command) -> Result<(), String> {
-        self.execute_command_and_generate_inverse(command)?;
+    fn execute_command_and_rebuild_cache(&mut self, command: Command) -> Result<Command, String> {
+        let undo_command = self.execute_command_and_generate_inverse(command)?;
         self.rebuild_cache();
-        Ok(())
+        Ok(undo_command)
     }
 
     fn rebuild_cache(&mut self) {
