@@ -426,7 +426,7 @@ impl Project {
     }
 
     pub fn invoke_command(&mut self, command: Command) -> Result<(), String> {
-        let undo_command = self.flow_state.execute_command_and_rebuild_cache(command.clone())?;
+        let undo_command = self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command.clone())?;
         self.append_to_command_history(CommandRecord {
             undo_command,
             redo_command: command,
@@ -440,7 +440,8 @@ impl Project {
             return Err("No commands to undo".to_string());
         }
         let command_record = &self.command_stack[self.num_commands_applied - 1];
-        self.flow_state.execute_command_and_rebuild_cache(command_record.undo_command.clone())?;
+        println!("Command for undo: {:?}", command_record.undo_command);
+        self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command_record.undo_command.clone())?;
         self.num_commands_applied -= 1;
         self.save_to_yaml()?;
         Ok(())
@@ -451,7 +452,8 @@ impl Project {
             return Err("No commands to redo".to_string());
         }
         let command_record = &self.command_stack[self.num_commands_applied];
-        self.flow_state.execute_command_and_rebuild_cache(command_record.redo_command.clone())?;
+        println!("Command for redo: {:?}", command_record.redo_command);
+        self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command_record.redo_command.clone())?;
         self.num_commands_applied += 1;
         self.save_to_yaml()?;
         Ok(())
@@ -768,6 +770,9 @@ impl FlowState {
                         if let Some(old_assignee_name) = self.resources.get(&old_assignee_id)
                             .map(|res| res.name.clone()) {
                                 task.assignee = None;
+                                if let Some(resource) = self.resources.get_mut(&old_assignee_id) {
+                                    resource.assigned_tasks.retain(|&x| x != task_id);
+                                }
                                 Ok(Command::AssignTask { timestamp, task_id, resource_name: old_assignee_name })
                             } else {
                                 Err(format!("Resource with id {} not found", old_assignee_id))
@@ -1042,7 +1047,7 @@ impl FlowState {
                 let mut flow_state_clone = self.clone();
                 let mut undo_commands = Vec::new();
                 for cmd in commands {
-                    let undo_cmd = flow_state_clone.execute_command_and_rebuild_cache(cmd)?;
+                    let undo_cmd = flow_state_clone.execute_command_generate_inverse_and_rebuild_cache(cmd)?;
                     undo_commands.push(undo_cmd);
                 }
                 undo_commands.reverse();
@@ -1052,7 +1057,7 @@ impl FlowState {
         }
     }
 
-    fn execute_command_and_rebuild_cache(&mut self, command: Command) -> Result<Command, String> {
+    fn execute_command_generate_inverse_and_rebuild_cache(&mut self, command: Command) -> Result<Command, String> {
         let undo_command = self.execute_command_and_generate_inverse(command)?;
         self.rebuild_cache();
         Ok(undo_command)
@@ -1240,8 +1245,8 @@ impl FlowStateCache {
                         }
                         let remaining_duration_for_current_day = TaskDuration {days: 1, fraction:0} - cursor.alloced_amount;
                         let work_to_allocate = remaining_duration.min(remaining_duration_for_current_day);
-                        task_alloc_rendering.entry(*task_id).or_insert_with(HashMap::new)
-                            .entry(*resource_id).or_insert_with(HashMap::new)
+                        task_alloc_rendering.entry(*task_id).or_default()
+                            .entry(*resource_id).or_default()
                             .insert(cursor.date, work_to_allocate.into());
                         cursor += work_to_allocate;
                         remaining_duration -= work_to_allocate;
@@ -1277,7 +1282,7 @@ impl FlowStateCache {
             end_date,
             date_to_milestones,
             unassigned_tasks,
-            task_alloc_rendering: HashMap::new(),
+            task_alloc_rendering,
             resource_absence_rendering,
         }
     }
