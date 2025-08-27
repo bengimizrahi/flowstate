@@ -197,6 +197,9 @@ impl Gui {
             if let Some(_task_tab_item) = ui.tab_item("Tasks") {
                 self.draw_gantt_chart_tasks(ui);
             }
+            if let Some(_debug_tab_item) = ui.tab_item("Debug") {
+                self.draw_debug(ui);
+            }
         }
     }
 
@@ -236,6 +239,12 @@ impl Gui {
             self.draw_gantt_chart_tasks_contents(ui);
             unsafe {imgui::sys::igEndTable();}
         }
+    }
+
+    fn draw_debug(&mut self, ui: &Ui) {
+        /* print project.flowstate into a string */
+        let flow_state_str = format!("{:#?}", self.project.flow_state());
+        ui.text(flow_state_str);
     }
 
     fn draw_gantt_chart_calendar_row(&mut self, ui: &Ui) {
