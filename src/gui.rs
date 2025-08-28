@@ -17,6 +17,13 @@ pub struct Gui {
     pto_duration_days: f32,
     milestone_input_text_buffer: String,
     milestone_date_input_text_buffer: String,
+    logs: Vec<String>,
+}
+
+macro_rules! gui_log {
+    ($gui:expr, $($arg:tt)*) => {
+        $gui.log(format!($($arg)*))
+    };
 }
 
 impl Gui {
@@ -34,9 +41,19 @@ impl Gui {
             pto_duration_days: 0.0,
             milestone_input_text_buffer: String::new(),
             milestone_date_input_text_buffer: String::new(),
+            logs: Vec::new(),
         }
     }
 
+    fn log(&mut self, message: String) {
+        self.logs.push(message);
+        if self.logs.len() > 10 {
+            self.logs.drain(0..self.logs.len() - 10);
+        }
+    }
+}
+
+impl Gui {
     pub fn run(mut self) {
         support::simple_init(file!(), move |_run, ui| {
             unsafe {imgui::sys::igStyleColorsLight(std::ptr::null_mut());}
@@ -71,12 +88,12 @@ impl Gui {
     fn draw_menu_bar(&mut self, ui: &Ui) {
         if ui.is_key_pressed(Key::Z) && ui.io().key_ctrl {
             self.project.undo().unwrap_or_else(|e| {
-                eprintln!("Failed to undo: {e}");
+                gui_log!(self, "Failed to undo: {e}");
             });
         }
         if ui.is_key_pressed(Key::Y) && ui.io().key_ctrl {
             self.project.redo().unwrap_or_else(|e| {
-                eprintln!("Failed to redo: {e}");
+                gui_log!(self, "Failed to redo: {e}");
             });
         }
         if let Some(menu_bar) = ui.begin_menu_bar() {
@@ -96,15 +113,13 @@ impl Gui {
             };
             if let Some(_edit_menu) = ui.begin_menu("Edit") {
                 if ui.menu_item_config("Undo").shortcut("Ctrl+Z").build() {
-                    // todo!("disable undo if no commands to undo")
                     self.project.undo().unwrap_or_else(|e| {
-                        eprintln!("Failed to undo: {e}");
+                        gui_log!(self, "Failed to undo: {e}");
                     });
                 }
                 if ui.menu_item_config("Redo").shortcut("Ctrl+Y").build() {
-                    // todo!("disable redo if no commands to redo")
                     self.project.redo().unwrap_or_else(|e| {
-                        eprintln!("Failed to redo: {e}");
+                        gui_log!(self, "Failed to redo: {e}");
                     });
                 }
             };
@@ -200,6 +215,18 @@ impl Gui {
             if let Some(_debug_tab_item) = ui.tab_item("Debug") {
                 self.draw_debug(ui);
             }
+            if let Some(_log_tab_item) = ui.tab_item("Logs") {
+                if let Some(table) = ui.begin_table_with_flags("##gui_logs_table", 1, TableFlags::BORDERS | TableFlags::ROW_BG | TableFlags::SCROLL_Y) {
+                    ui.table_setup_column("GUI Log Messages");
+                    ui.table_headers_row();
+                    for log in self.logs.iter().rev() {
+                        ui.table_next_row();
+                        ui.table_next_column();
+                        ui.text(log);
+                    } 
+                    table.end();
+                }
+            }
         }
     }
 
@@ -242,7 +269,6 @@ impl Gui {
     }
 
     fn draw_debug(&mut self, ui: &Ui) {
-        /* print project.flowstate into a string */
         let flow_state_str = format!("{:#?}", self.project.flow_state());
         ui.text(flow_state_str);
     }
@@ -299,7 +325,6 @@ impl Gui {
                 ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
             }
         }
-
     }
 
     fn draw_gantt_chart_resources_contents(&mut self, ui: &Ui) {
@@ -695,7 +720,7 @@ impl Gui {
                             start_date: *day,
                             days: pto_duration,
                         }).unwrap_or_else(|e| {
-                            eprintln!("Failed to add PTO: {e}");
+                            gui_log!(self, "Failed to add PTO: {e}");
                         });
                         self.pto_duration_days = 0.0;
                     }
@@ -713,7 +738,7 @@ impl Gui {
                             fraction: 0,
                         },
                     }).unwrap_or_else(|e| {
-                        eprintln!("Failed to remove PTO: {e}");
+                        gui_log!(self, "Failed to remove PTO: {e}");
                     });
                 }
             }
@@ -725,15 +750,43 @@ impl Gui {
         if let Some(popup) = ui.begin_popup_context_item() {
             if ui.menu_item("Move to top") {
                 ui.close_current_popup();
+                self.project.invoke_command(Command::PrioritizeTask {
+                    timestamp: Utc::now(),
+                    task_id: *task_id,
+                    to_top: true
+                }).unwrap_or_else(|e| {
+                    gui_log!(self, "Failed to move task to top: {e}");
+                });
             }
             if ui.menu_item("Move up") {
                 ui.close_current_popup();
+                self.project.invoke_command(Command::PrioritizeTask {
+                    timestamp: Utc::now(),
+                    task_id: *task_id,
+                    to_top: false
+                }).unwrap_or_else(|e| {
+                    gui_log!(self, "Failed to move task up: {e}");
+                });
             }
             if ui.menu_item("Move down") {
                 ui.close_current_popup();
+                self.project.invoke_command(Command::DeprioritizeTask {
+                    timestamp: Utc::now(),
+                    task_id: *task_id,
+                    to_bottom: false
+                }).unwrap_or_else(|e| {
+                    gui_log!(self, "Failed to move task down: {e}");
+                });
             }
             if ui.menu_item("Move to bottom") {
                 ui.close_current_popup();
+                self.project.invoke_command(Command::DeprioritizeTask {
+                    timestamp: Utc::now(),
+                    task_id: *task_id,
+                    to_bottom: true
+                }).unwrap_or_else(|e| {
+                    gui_log!(self, "Failed to move task to bottom: {e}");
+                });
             }
             ui.separator();
             if let Some(_assign_to_menu) = ui.begin_menu("Assign to") {
