@@ -599,7 +599,7 @@ impl Gui {
                         .display_format("%.0f days")
                         .build(&mut self.task_duration_days);
                     ui.input_float("##duration_input", &mut self.task_duration_days)
-                        .display_format("%.0f days")
+                        .display_format("%.1f days")
                         .build();
                     if ui.button("Ok") {
                         can_create_task = is_info_filled_in(
@@ -698,12 +698,15 @@ impl Gui {
             }
             if let Some(_create_resource_menu) = ui.begin_menu(add_or_update_pto_string) {
                 if let Some(child_window) = ui.child_window("##add_or_update_pto_menu")
-                        .size([140.0, 20.0])
+                        .size([140.0, 40.0])
                         .begin() {
                     let mut can_add_or_update_pto = false;
                     ui.slider_config("##duration", 0.1, 30.0)
-                        .display_format("%.1f days")
+                        .display_format("%.0f days")
                         .build(&mut self.pto_duration_days);
+                    ui.input_float("##duration_input", &mut self.pto_duration_days)
+                        .display_format("%.1f days")
+                        .build();
                     ui.same_line();
                     if ui.button("Ok") {
                         can_add_or_update_pto = is_info_filled_in(self.pto_duration_days);
