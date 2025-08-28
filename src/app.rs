@@ -103,6 +103,7 @@ impl TaskDuration {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Command {
+    NoOp,
     CreateTeam{
         timestamp: DateTime<Utc>,
         name: TeamName,
@@ -152,6 +153,21 @@ pub enum Command {
     DeleteTask{
         timestamp: DateTime<Utc>,
         id: TaskId,
+    },
+    PrioritizeTask{
+        timestamp: DateTime<Utc>,
+        task_id: TaskId,
+        to_top: bool,
+    },
+    DeprioritizeTask{
+        timestamp: DateTime<Utc>,
+        task_id: TaskId,
+        to_bottom: bool,
+    },
+    ChangeTaskPriority{
+        timestamp: DateTime<Utc>,
+        task_id: TaskId,
+        delta: i32,
     },
     AssignTask{
         timestamp: DateTime<Utc>,
@@ -529,6 +545,7 @@ impl FlowState {
 
     fn execute_command_and_generate_inverse(&mut self, command: Command) -> Result<Command, String> {
         match command {
+            Command::NoOp => Ok(Command::NoOp),
             Command::CreateTeam { timestamp, name} => {
                 if self.teams.values().any(|team| team.name == name) {
                     return Err(format!("A team with the name '{}' already exists", name));
@@ -743,6 +760,84 @@ impl FlowState {
                     return Err(format!("Task with id {} not found", id));
                 }
             }
+            Command::PrioritizeTask { timestamp, task_id, to_top } => {
+                if let Some(task) = self.tasks.get(&task_id) {
+                    if let Some(assignee_id) = task.assignee {
+                        if let Some(resource) = self.resources.get_mut(&assignee_id) {
+                            let pos = resource.assigned_tasks.iter().position(|&id| id == task_id);
+                            if let Some(pos) = pos {
+                                if to_top {
+                                    self.execute_command_and_generate_inverse(Command::ChangeTaskPriority { timestamp, task_id, delta: (-(pos as i32)) })
+                                } else {
+                                    self.execute_command_and_generate_inverse(Command::ChangeTaskPriority { timestamp, task_id, delta: if pos > 0 {-1} else {0}} )
+                                }
+                            } else {
+                                Err(format!("Task with id {} is not assigned to any resource", task_id))
+                            }
+                        } else {
+                            Err(format!("Resource with id {} not found", assignee_id))
+                        }
+                    } else {
+                        Err(format!("Task with id {} is not assigned to any resource", task_id))
+                    }
+                } else {
+                    Err(format!("Task with id {} not found", task_id))
+                }
+            }
+            Command::DeprioritizeTask { timestamp, task_id, to_bottom} => {
+                if let Some(task) = self.tasks.get(&task_id) {
+                    if let Some(assignee_id) = task.assignee {
+                        if let Some(resource) = self.resources.get_mut(&assignee_id) {
+                            let pos = resource.assigned_tasks.iter().position(|&id| id == task_id);
+                            if let Some(pos) = pos {
+                                if to_bottom {
+                                    let delta = (resource.assigned_tasks.len() - 1 - pos) as i32;
+                                    self.execute_command_and_generate_inverse(Command::ChangeTaskPriority { timestamp, task_id, delta })
+                                } else if pos < resource.assigned_tasks.len() - 1 {
+                                    self.execute_command_and_generate_inverse(Command::ChangeTaskPriority { timestamp, task_id, delta: 1 })
+                                } else {
+                                    self.execute_command_and_generate_inverse(Command::ChangeTaskPriority { timestamp, task_id, delta: 0 })
+                                }
+                            } else {
+                                Err(format!("Task with id {} is not assigned to any resource", task_id))
+                            }
+                        } else {
+                            Err(format!("Resource with id {} not found", assignee_id))
+                        }
+                    } else {
+                        Err(format!("Task with id {} is not assigned to any resource", task_id))
+                    }
+                } else {
+                    Err(format!("Task with id {} not found", task_id))
+                }
+            }
+            Command::ChangeTaskPriority { timestamp, task_id, delta } => {
+                if let Some(task) = self.tasks.get(&task_id) {
+                    if let Some(assignee_id) = task.assignee {
+                        if let Some(resource) = self.resources.get_mut(&assignee_id) {
+                            let pos = resource.assigned_tasks.iter().position(|&id| id == task_id);
+                            if let Some(pos) = pos {
+                                let new_pos = pos as i32 + delta;
+                                if new_pos < 0 || new_pos >= resource.assigned_tasks.len() as i32 {
+                                    return Err(format!("New position {} is out of bounds for task list of length {}", new_pos, resource.assigned_tasks.len()));
+                                }
+                                let new_pos = new_pos as usize;
+                                resource.assigned_tasks.remove(pos);
+                                resource.assigned_tasks.insert(new_pos, task_id);
+                                Ok(Command::ChangeTaskPriority { timestamp, task_id, delta: -delta })
+                            } else {
+                                Err(format!("Task with id {} is not assigned to any resource", task_id))
+                            }
+                        } else {
+                            Err(format!("Resource with id {} not found", assignee_id))
+                        }
+                    } else {
+                        Err(format!("Task with id {} is not assigned to any resource", task_id))
+                    }
+                } else {
+                    Err(format!("Task with id {} not found", task_id))
+                }
+            }
             Command::AssignTask { timestamp, task_id, resource_name } => {
                 let resource_id = self.resources.iter()
                     .find(|(_, res)| res.name == resource_name)
@@ -892,14 +987,14 @@ impl FlowState {
                     return Err(format!("A filter with the name '{}' already exists", name));
                 }
 
-                let label_ids: BTreeSet<LabelId> = labels.iter()
-                    .filter_map(|label_name| {
-                        self.get_label_id(label_name).or_else(|| {
-                            eprintln!("Warning: Label '{}' not found", label_name);
-                            None
-                        })
-                    })
-                    .collect();
+                let mut label_ids = BTreeSet::new();
+                for label_name in &labels {
+                    if let Some(label_id) = self.get_label_id(label_name) {
+                        label_ids.insert(label_id);
+                    } else {
+                        return Err(format!("Label '{}' not found", label_name));
+                    }
+                }
                 let filter_id = self.next_filter_id();
                 self.filters.insert(filter_id, Filter { name: name.clone(), labels: label_ids });
 
