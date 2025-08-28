@@ -1338,14 +1338,21 @@ impl FlowStateCache {
                             cursor.date = cursor.date + Duration::days(1);
                             cursor.alloced_amount = TaskDuration { days: 0, fraction: 0 };
                         }
-                        let remaining_duration_for_current_day = TaskDuration {days: 1, fraction:0} - cursor.alloced_amount;
+                        let absence_for_current_day = resource_absence_rendering.get(resource_id)
+                            .and_then(|absence_map| absence_map.get(&cursor.date))
+                            .copied()
+                            .unwrap_or(0);
+                        let remaining_duration_for_current_day = TaskDuration { days: 1, fraction: 0 } 
+                            - cursor.alloced_amount 
+                            - TaskDuration { days: 0, fraction: absence_for_current_day };
                         let work_to_allocate = remaining_duration.min(remaining_duration_for_current_day);
                         task_alloc_rendering.entry(*task_id).or_default()
                             .entry(*resource_id).or_default()
                             .insert(cursor.date, work_to_allocate.into());
                         cursor += work_to_allocate;
                         remaining_duration -= work_to_allocate;
-                    }}
+                    }
+                }
             }
         }
         let mut start_date = flow_state.milestones.iter()
