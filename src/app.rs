@@ -1230,6 +1230,35 @@ pub struct AllocCursor {
     pub alloced_amount: TaskDuration,
 }
 
+impl AllocCursor {
+    fn new() -> Self {
+        let mut cursor = AllocCursor {
+            date: Utc::now().date_naive(),
+            alloced_amount: TaskDuration { days: 0, fraction: 0 },
+        };
+        cursor.if_weekend_advance_to_monday();
+        cursor
+    }
+
+    fn advance_to_next_working_day(&mut self) {
+        self.date = self.date + Duration::days(1);
+        self.alloced_amount = TaskDuration { days: 0, fraction: 0 };
+        while self.date.weekday() == chrono::Weekday::Sat || self.date.weekday() == chrono::Weekday::Sun {
+            self.date = self.date + Duration::days(1);
+        }
+    }
+
+    fn if_weekend_advance_to_monday(&mut self) {
+        if self.date.weekday() == chrono::Weekday::Sat {
+            self.date = self.date + Duration::days(2);
+            self.alloced_amount = TaskDuration { days: 0, fraction: 0 };
+        } else if self.date.weekday() == chrono::Weekday::Sun {
+            self.date = self.date + Duration::days(1);
+            self.alloced_amount = TaskDuration { days: 0, fraction: 0 };
+        }
+    }
+}
+
 impl std::ops::AddAssign<TaskDuration> for AllocCursor {
     fn add_assign(&mut self, other: TaskDuration) {
         let new_amount = self.alloced_amount + other;
@@ -1239,6 +1268,7 @@ impl std::ops::AddAssign<TaskDuration> for AllocCursor {
         } else {
             self.alloced_amount = new_amount;
         }
+        self.if_weekend_advance_to_monday();
     }
 }
 
@@ -1265,7 +1295,7 @@ impl FlowStateCache {
     }
 
     fn from(flow_state: &FlowState) -> Self {
-        let resource_absence_rendering = flow_state.resources.iter()
+        let resource_absence_rendering: HashMap<ResourceId, HashMap<NaiveDate, Fraction>> = flow_state.resources.iter()
             .map(|(resource_id, resource)| {
                 let absence_map = {
                     resource.absences.iter().fold(HashMap::new(), |mut acc, absence| {
@@ -1318,39 +1348,53 @@ impl FlowStateCache {
                 let total_worklog = total_worklogs.get(task_id)
                     .cloned()
                     .unwrap_or(TaskDuration { days: 0, fraction: 0 });
-                (*task_id, task.duration.clone() - total_worklog)
+                (*task_id, TaskDuration::zero().max(task.duration.clone() - total_worklog))
             })
             .collect();
         
         let mut task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>> = HashMap::new();
         for (resource_id, resource) in &flow_state.resources {
-            let mut cursor = AllocCursor {
-                date: Utc::now().date_naive(),
-                alloced_amount: TaskDuration { days: 0, fraction: 0 }
-            };
+            println!("  Initiating allocation for resource: {}", resource_id);
+            let mut cursor = AllocCursor::new();
+            println!("  Initiating cursor at date {}, alloced_amount: {:?}", cursor.date, cursor.alloced_amount);
             for task_id in &resource.assigned_tasks {
                 if let Some(_task) = flow_state.tasks.get(task_id) {
-                    let mut remaining_duration = remaining_durations.get(task_id)
+                    println!("Allocating for task: {}", task_id);
+                    let mut remaining_alloc = remaining_durations.get(task_id)
                         .cloned()
                         .unwrap_or(TaskDuration { days: 0, fraction: 0 });
-                    while remaining_duration > (TaskDuration { days: 0, fraction: 0 }) {
-                        while cursor.date.weekday() == chrono::Weekday::Sat || cursor.date.weekday() == chrono::Weekday::Sun {
-                            cursor.date = cursor.date + Duration::days(1);
-                            cursor.alloced_amount = TaskDuration { days: 0, fraction: 0 };
-                        }
+                    println!("  Remaining alloc: {:?}", remaining_alloc);
+                    while remaining_alloc > (TaskDuration { days: 0, fraction: 0 }) {
                         let absence_for_current_day = resource_absence_rendering.get(resource_id)
                             .and_then(|absence_map| absence_map.get(&cursor.date))
                             .copied()
                             .unwrap_or(0);
-                        let remaining_duration_for_current_day = TaskDuration { days: 1, fraction: 0 } 
-                            - cursor.alloced_amount 
+                        println!("  Cursor at date {}, alloced_amount: {:?}, absence_for_current_day: {}", cursor.date, cursor.alloced_amount, absence_for_current_day);
+                        let total_worklog_for_current_day = flow_state.worklogs.iter()
+                            .filter_map(|(_, resource_map)| resource_map.get(resource_id))
+                            .filter_map(|date_map| date_map.get(&cursor.date))
+                            .map(|w| w.fraction)
+                            .sum::<Fraction>();
+                        println!("    total_worklog_for_current_day: {}", total_worklog_for_current_day);
+                        let remaining_alloc_for_current_day = TaskDuration { days: 1, fraction: 0 } 
+                            - cursor.alloced_amount
+                            - TaskDuration { days: 0, fraction: total_worklog_for_current_day }
                             - TaskDuration { days: 0, fraction: absence_for_current_day };
-                        let work_to_allocate = remaining_duration.min(remaining_duration_for_current_day);
+                        println!("    remaining_alloc_for_current_day: {:?}", remaining_alloc_for_current_day);
+                        let work_to_allocate = remaining_alloc.min(remaining_alloc_for_current_day);
+                        println!("    work_to_allocate: {:?}", work_to_allocate);
                         task_alloc_rendering.entry(*task_id).or_default()
                             .entry(*resource_id).or_default()
                             .insert(cursor.date, work_to_allocate.into());
-                        cursor += work_to_allocate;
-                        remaining_duration -= work_to_allocate;
+                        remaining_alloc -= work_to_allocate;
+                        println!("    remaining_alloc: {:?}", remaining_alloc);
+                        if remaining_alloc == (TaskDuration { days: 0, fraction: 0 }) {
+                            cursor += work_to_allocate;
+                            println!("  Finished allocation for task {}, advanced cursor to date {}, alloced_amount: {:?}", task_id, cursor.date, cursor.alloced_amount);
+                        } else {
+                            cursor.advance_to_next_working_day();
+                            println!("  Advanced cursor to next working day {}, alloced_amount: {:?}", cursor.date, cursor.alloced_amount);
+                        }
                     }
                 }
             }
@@ -1570,5 +1614,12 @@ mod tests {
             duration: TaskDuration { days: 0, fraction: 0 },
         };
         assert_eq!(a1.intersects(&a2), true);
+    }
+
+    #[test]
+    fn test_alloc_cursor_add_assign_task_duration() {
+        let mut cursor = AllocCursor::new();
+        cursor += TaskDuration { days: 0, fraction: 50 };
+        assert_eq!(cursor.alloced_amount, TaskDuration { days: 0, fraction: 50 });
     }
 }
