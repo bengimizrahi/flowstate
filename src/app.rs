@@ -1383,9 +1383,11 @@ impl FlowStateCache {
                         println!("    remaining_alloc_for_current_day: {:?}", remaining_alloc_for_current_day);
                         let work_to_allocate = remaining_alloc.min(remaining_alloc_for_current_day);
                         println!("    work_to_allocate: {:?}", work_to_allocate);
-                        task_alloc_rendering.entry(*task_id).or_default()
-                            .entry(*resource_id).or_default()
-                            .insert(cursor.date, work_to_allocate.into());
+                        if work_to_allocate > (TaskDuration { days: 0, fraction: 0 }) {
+                            task_alloc_rendering.entry(*task_id).or_default()
+                                .entry(*resource_id).or_default()
+                                .insert(cursor.date, work_to_allocate.into());
+                        }
                         remaining_alloc -= work_to_allocate;
                         println!("    remaining_alloc: {:?}", remaining_alloc);
                         if remaining_alloc == (TaskDuration { days: 0, fraction: 0 }) {

@@ -1,3 +1,6 @@
+use core::alloc;
+use std::cell;
+
 use crate::app::*;
 use crate::support;
 use imgui::sys::igGetCursorScreenPos;
@@ -18,6 +21,18 @@ pub struct Gui {
     milestone_input_text_buffer: String,
     milestone_date_input_text_buffer: String,
     logs: Vec<String>,
+    drawing_aids: DrawingAids,
+}
+
+struct DrawingAids {
+    previous_alloc: Option<Fraction>,
+    previous_rect: Option<(ImVec2, ImVec2)>,
+}
+
+impl DrawingAids {
+    pub fn new() -> Self {
+        DrawingAids { previous_alloc: None, previous_rect: None }
+    }
 }
 
 macro_rules! gui_log {
@@ -42,6 +57,7 @@ impl Gui {
             milestone_input_text_buffer: String::new(),
             milestone_date_input_text_buffer: String::new(),
             logs: Vec::new(),
+            drawing_aids: DrawingAids::new(),
         }
     }
 
@@ -440,52 +456,126 @@ impl Gui {
     fn draw_absence(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, resource: &Resource) {
         if let Some(absence) = self.project.flow_state().cache().resource_absence_rendering.get(resource_id).and_then(|r| r.get(day)) {
             let cell_height = unsafe { igGetTextLineHeight() };
-            let cell_width = ui.current_column_width();
+            let cell_padding = unsafe { ui.style().cell_padding };
+            let effective_cell_height = cell_height + (cell_padding[1] * 2.0);
+            let effective_cell_width = ui.current_column_width();
+
             let cursor_pos = unsafe {
                 let mut pos = ImVec2 { x: 0.0, y: 0.0 };
                 igGetCursorScreenPos(&mut pos);
+                pos.y -= cell_padding[1] / 2.0;
                 pos
             };
 
             // Calculate the height of the absence rectangle based on percentage
-            let absence_height = (cell_height * (*absence as f32 / 100.0)).max(1.0);
+            let absence_height = (effective_cell_height * (*absence as f32 / 100.0)).max(1.0);
 
             // Draw the absence rectangle from the top of the cell
             let draw_list = ui.get_window_draw_list();
             let top_left = [cursor_pos.x, cursor_pos.y];
-            let bottom_right = [cursor_pos.x + cell_width, cursor_pos.y + absence_height];
+            let bottom_right = [cursor_pos.x + effective_cell_width, cursor_pos.y + absence_height];
             let absence_color = [0.0, 0.0, 0.0, 1.0];
+            let border_color = [0.0, 0.0, 0.0, 1.0];
 
             draw_list.add_rect(top_left, bottom_right, absence_color)
                 .filled(true)
                 .build();
+
+            // Draw border around the absence rectangle
+            draw_list.add_rect(top_left, bottom_right, border_color)
+                .thickness(1.0)
+                .build();
         }
     }
 
-    fn draw_alloc(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, resource: &Resource, task_id: &TaskId, task: &Task) {
+    fn draw_alloc(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, resource: &Resource, task_id: &TaskId, task: &Task) {     
+        let cell_height = unsafe { igGetTextLineHeight() };
+        let cell_padding = unsafe { ui.style().cell_padding };
+        let effective_cell_height = cell_height + (cell_padding[1]);
+        let effective_cell_width = ui.current_column_width();
+
+        let prev_alloc_height: Option<f32> = self.drawing_aids.previous_alloc.map(|prev_alloc| {
+            (effective_cell_height * (prev_alloc as f32 / 100.0)).max(1.0)
+        });
+        
         if let Some(alloc) = self.project.flow_state().cache().task_alloc_rendering.get(task_id)
             .and_then(|r| r.get(resource_id))
             .and_then(|r| r.get(day)) {
-            let cell_height = unsafe { igGetTextLineHeight() };
-            let cell_width = ui.current_column_width();
             let cursor_pos = unsafe {
                 let mut pos = ImVec2 { x: 0.0, y: 0.0 };
                 igGetCursorScreenPos(&mut pos);
+                pos.y -= cell_padding[1] / 2.0;
                 pos
             };
 
             // Calculate the height of the allocation rectangle based on percentage
-            let alloc_height = (cell_height * (*alloc as f32 / 100.0)).max(1.0);
+            let alloc_height = (effective_cell_height * (*alloc as f32 / 100.0)).max(1.0);
 
-            // Draw the allocation rectangle from the bottom of the cell
+            // Draw the allocation rectangle from the bottom of the cell, extending into padding
             let draw_list = ui.get_window_draw_list();
-            let top_left = [cursor_pos.x, cursor_pos.y + cell_height - alloc_height];
-            let bottom_right = [cursor_pos.x + cell_width, cursor_pos.y + cell_height];
+            let top_left = [cursor_pos.x, cursor_pos.y + effective_cell_height - alloc_height];
+            let bottom_right = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height];
             let alloc_color = [1.0, 1.0, 1.0, 1.0];
+            let border_color = [0.0, 0.0, 0.0, 1.0];
 
             draw_list.add_rect(top_left, bottom_right, alloc_color)
                 .filled(true)
                 .build();
+
+            if let Some(prev_alloc) = self.drawing_aids.previous_alloc {
+                let prev_alloc_height = (effective_cell_height * (prev_alloc as f32 / 100.0)).max(1.0);
+                let left_top = [cursor_pos.x, cursor_pos.y + effective_cell_height - alloc_height as f32];
+                let left_bottom = [cursor_pos.x, cursor_pos.y + effective_cell_height - prev_alloc_height as f32];
+                draw_list.add_line(left_top, left_bottom, border_color)
+                    .thickness(1.0)
+                    .build();
+            } else {
+                // draw the left border to black
+                let left_top = [cursor_pos.x, cursor_pos.y + effective_cell_height - alloc_height];
+                let left_bottom = [cursor_pos.x, cursor_pos.y + effective_cell_height];
+                draw_list.add_line(left_top, left_bottom, border_color)
+                    .thickness(1.0)
+                    .build();
+            }
+            
+            let top_left_border = [cursor_pos.x, cursor_pos.y + effective_cell_height - alloc_height];
+            let top_right_border = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height - alloc_height];
+            let bottom_left_border = [cursor_pos.x, cursor_pos.y + effective_cell_height];
+            let bottom_right_border = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height];
+
+            draw_list.add_line(top_left_border, top_right_border, border_color)
+                .thickness(1.0)
+                .build();
+            draw_list.add_line(bottom_left_border, bottom_right_border, border_color)
+                .thickness(1.0)
+                .build();
+            self.drawing_aids = DrawingAids{
+                previous_alloc: Some(*alloc),
+                previous_rect: Some((
+                    ImVec2 { x: top_left[0], y: top_left[1] },
+                    ImVec2 { x: bottom_right[0], y: bottom_right[1] }))
+            };
+        } else {
+            if self.drawing_aids.previous_alloc.is_some() {
+                // draw the right border to black
+                let cursor_pos = unsafe {
+                    let mut pos = ImVec2 { x: 0.0, y: 0.0 };
+                    igGetCursorScreenPos(&mut pos);
+                    pos
+                };
+                let border_color = [0.0, 0.0, 0.0, 1.0];
+
+                let right_top = [self.drawing_aids.previous_rect.unwrap().1.x, cursor_pos.y + effective_cell_height - prev_alloc_height.unwrap()];
+                let right_bottom = [self.drawing_aids.previous_rect.unwrap().1.x, cursor_pos.y + effective_cell_height];
+
+                ui.get_window_draw_list().add_line(right_top, right_bottom, border_color)
+                    .thickness(1.0)
+                    .build();
+                self.drawing_aids = DrawingAids{
+                    previous_alloc: None,
+                    previous_rect: None,
+                };
+            }
         }
     }
 
