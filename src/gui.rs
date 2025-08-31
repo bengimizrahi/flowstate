@@ -9,6 +9,14 @@ use imgui::sys::ImVec2;
 use imgui::*;
 use chrono::{Utc, Datelike, NaiveDate};
 
+const CREATE_TEAM_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 30.0];
+const RENAME_TEAM_CHILD_WINDOW_SIZE: [f32; 2] = CREATE_TEAM_CHILD_WINDOW_SIZE;
+const CREATE_RESOURCE_CHILD_WINDOW_SIZE: [f32; 2] = CREATE_TEAM_CHILD_WINDOW_SIZE;
+const RENAME_RESOURCE_CHILD_WINDOW_SIZE: [f32; 2] = CREATE_RESOURCE_CHILD_WINDOW_SIZE;
+const CREATE_TASK_CHILD_WINDOW_SIZE: [f32; 2] = [180.0, 150.0];
+const UPDATE_TASK_CHILD_WINDOW_SIZE: [f32; 2] = CREATE_TASK_CHILD_WINDOW_SIZE;
+const CREATE_MILESTONE_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 70.0];
+
 pub struct Gui {
     project: Project,
 
@@ -159,7 +167,7 @@ impl Gui {
             if let Some(_action_menu) = ui.begin_menu("Insert") {
                 if let Some(_team_menu) = ui.begin_menu("Team") {
                     if let Some(child_window) = ui.child_window("##team_menu")
-                            .size([140.0, 20.0])
+                            .size(CREATE_TEAM_CHILD_WINDOW_SIZE)
                             .begin() {
                         let mut can_create_team = false;
                         if ui.input_text("##team_name", &mut self.team_input_text_buffer)
@@ -185,7 +193,7 @@ impl Gui {
                 }
                 if let Some(_milestone_menu) = ui.begin_menu("Milestone") {
                     if let Some(child_window) = ui.child_window("##team_menu")
-                            .size([240.0, 50.0])
+                            .size(CREATE_MILESTONE_CHILD_WINDOW_SIZE)
                             .begin() {
                         let mut can_create_milestone = false;
                         if ui.input_text("##milestone_title", &mut self.milestone_input_text_buffer)
@@ -608,7 +616,7 @@ impl Gui {
         if let Some(popup) = ui.begin_popup_context_item() {
             if let Some(_rename_team_menu) = ui.begin_menu("Rename Team") {
                 if let Some(child_window) = ui.child_window("##rename_team_menu")
-                        .size([140.0, 20.0])
+                        .size(RENAME_TEAM_CHILD_WINDOW_SIZE)
                         .begin() {
                     let mut can_create_team = false;
                     if ui.input_text("##new_team_name", &mut self.team_input_text_buffer)
@@ -646,7 +654,7 @@ impl Gui {
             ui.separator();
             if let Some(_create_resource_menu) = ui.begin_menu("Create Resource") {
                 if let Some(child_window) = ui.child_window("##create_resource_menu")
-                        .size([140.0, 20.0])
+                        .size(CREATE_RESOURCE_CHILD_WINDOW_SIZE)
                         .begin() {
                     let mut can_create_resource = false;
                     if ui.input_text("##resource_name", &mut self.resource_input_text_buffer)
@@ -685,7 +693,7 @@ impl Gui {
         if let Some(popup) = ui.begin_popup_context_item() {
             if let Some(_create_task_menu) = ui.begin_menu("Create Task") {
                 if let Some(child_window) = ui.child_window("##create_task_menu")
-                        .size([150.0, 120.0])
+                        .size(CREATE_TASK_CHILD_WINDOW_SIZE)
                         .begin() {
                     let mut can_create_task = false;
                     if ui.input_text("##ticket", &mut self.ticket_input_text_buffer)
@@ -752,7 +760,7 @@ impl Gui {
             ui.separator();
             if let Some(_rename_resource_menu) = ui.begin_menu("Rename Resource") {
                 if let Some(child_window) = ui.child_window("##rename_resource_menu")
-                        .size([140.0, 20.0])
+                        .size(RENAME_RESOURCE_CHILD_WINDOW_SIZE)
                         .begin() {
                     let mut can_create_resource = false;
                     if ui.input_text("##new_resource_name", &mut self.resource_input_text_buffer)
@@ -809,7 +817,7 @@ impl Gui {
             }
             if let Some(_create_resource_menu) = ui.begin_menu(add_or_update_pto_string) {
                 if let Some(child_window) = ui.child_window("##add_or_update_pto_menu")
-                        .size([140.0, 40.0])
+                        .size([180.0, 70.0])
                         .begin() {
                     let mut can_add_or_update_pto = false;
                     ui.slider_config("##duration", 0.1, 30.0)
@@ -913,7 +921,62 @@ impl Gui {
                 ui.menu_item("Delete");
             });
             if let Some(_update_task_menu) = ui.begin_menu("Update Task") {
-
+                let is_info_filled_in =
+                        |task_title: &str, ticket: &str, duration: f32| {
+                    !task_title.is_empty() && !ticket.is_empty() && duration > 0.0
+                };
+                if let Some(child_window) = ui.child_window("##update_task_menu")
+                        .size(UPDATE_TASK_CHILD_WINDOW_SIZE)
+                        .begin() {
+                    let mut can_update_task = false;
+                    if ui.input_text("##ticket", &mut self.ticket_input_text_buffer)
+                            .enter_returns_true(true)
+                            .hint("Enter ticket number")
+                            .build() {
+                        can_update_task = is_info_filled_in(
+                            &self.task_title_input_text_buffer,
+                            &self.ticket_input_text_buffer,
+                            self.task_duration_days);
+                    }
+                    if ui.input_text("##task_title", &mut self.task_title_input_text_buffer)
+                            .enter_returns_true(true)
+                            .hint("Enter task title")
+                            .build() {
+                        can_update_task = is_info_filled_in(
+                            &self.task_title_input_text_buffer,
+                            &self.ticket_input_text_buffer,
+                            self.task_duration_days);
+                    }
+                    ui.slider_config("##duration_slider", 0.1, 30.0)
+                        .display_format("%.0f days")
+                        .build(&mut self.task_duration_days);
+                    ui.input_float("##duration_input", &mut self.task_duration_days)
+                        .display_format("%.1f days")
+                        .build();
+                    if ui.button("Ok") {
+                        can_update_task = is_info_filled_in(
+                            &self.task_title_input_text_buffer,
+                            &self.ticket_input_text_buffer,
+                            self.task_duration_days);
+                    }
+                    if can_update_task {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::UpdateTask {
+                            timestamp: Utc::now(),
+                            id: *task_id,
+                            ticket: self.ticket_input_text_buffer.clone(),
+                            title: self.task_title_input_text_buffer.clone(),
+                            duration: TaskDuration {
+                                days: self.task_duration_days as u64,
+                                fraction: (self.task_duration_days.fract() * 100.0) as u8,
+                            },
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                        self.task_title_input_text_buffer.clear();
+                    }
+                    child_window.end();
+                }
             }
             if ui.menu_item("Open in JIRA") {
                 ui.close_current_popup();
