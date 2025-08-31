@@ -12,7 +12,7 @@ use std::time::Instant;
 
 mod clipboard;
 
-pub const FONT_SIZE: f32 = 13.0;
+pub const FONT_SIZE: f32 = 18.0;
 
 #[allow(dead_code)] // annoyingly, RA yells that this is unusued
 pub fn simple_init<F: FnMut(&mut bool, &mut Ui) + 'static>(title: &str, run_ui: F) {
