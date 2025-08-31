@@ -1351,7 +1351,8 @@ impl FlowStateCache {
                 (*task_id, TaskDuration::zero().max(task.duration.clone() - total_worklog))
             })
             .collect();
-        
+
+        let mut most_recent_alloc_date = chrono::Utc::now().date_naive();
         let mut task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>> = HashMap::new();
         for (resource_id, resource) in &flow_state.resources {
             println!("  Initiating allocation for resource: {}", resource_id);
@@ -1395,6 +1396,7 @@ impl FlowStateCache {
                             println!("  Finished allocation for task {}, advanced cursor to date {}, alloced_amount: {:?}", task_id, cursor.date, cursor.alloced_amount);
                         } else {
                             cursor.advance_to_next_working_day();
+                            most_recent_alloc_date = most_recent_alloc_date.max(cursor.date);
                             println!("  Advanced cursor to next working day {}, alloced_amount: {:?}", cursor.date, cursor.alloced_amount);
                         }
                     }
@@ -1423,8 +1425,11 @@ impl FlowStateCache {
             .cloned()
             .max()
             .unwrap_or(end_date));
+        end_date = end_date.max(most_recent_alloc_date);
+        println!("Determined end date: {}", end_date);
         end_date = end_date.checked_add_signed(Duration::days(30))
             .unwrap_or(NaiveDate::MAX);
+        println!("Determined date range: {} to {}", start_date, end_date);
         FlowStateCache {
             start_date,
             end_date,
