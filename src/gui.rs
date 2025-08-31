@@ -12,6 +12,7 @@ use chrono::{Utc, Datelike, NaiveDate};
 pub struct Gui {
     project: Project,
 
+    bold_font: std::rc::Rc<std::cell::RefCell<Option<FontId>>>,
     team_input_text_buffer: String,
     resource_input_text_buffer: String,
     ticket_input_text_buffer: String,
@@ -48,6 +49,7 @@ impl Gui {
                 eprintln!("Failed to load project: {e}");
                 Project::new()
             }),
+            bold_font: std::rc::Rc::new(std::cell::RefCell::new(None)),
             team_input_text_buffer: String::new(),
             resource_input_text_buffer: String::new(),
             ticket_input_text_buffer: String::new(),
@@ -71,28 +73,43 @@ impl Gui {
 
 impl Gui {
     pub fn run(mut self) {
-        support::simple_init(file!(), move |_run, ui| {
-            unsafe {imgui::sys::igStyleColorsLight(std::ptr::null_mut());}
-            
-            let display_size = ui.io().display_size;
-            
-            if let Some(window) = ui.window("FlowState")
-                .position([0.0, 0.0], Condition::Always)
-                .size(display_size, Condition::Always)
-                .title_bar(false)
-                .resizable(false)
-                .movable(false)
-                .scroll_bar(false)
-                .collapsible(false)
-                .bring_to_front_on_focus(false)
-                .nav_focus(false)
-                .menu_bar(true)
-                .begin()
-            {
-                self.draw(ui);
-                window.end();
+        let bold_font_for_init = self.bold_font.clone();
+        support::init_with_startup(
+            file!(),
+            move |ctx, renderer, _| {
+                let mut bold_font_handle = bold_font_for_init.borrow_mut();
+                *bold_font_handle = Some(ctx.fonts().add_font(&[FontSource::TtfData {
+                    data: include_bytes!("../res/Roboto-Bold.ttf"),
+                    size_pixels: support::FONT_SIZE,
+                    config: None,
+                }]));
+                renderer
+                    .reload_font_texture(ctx)
+                    .expect("Failed to reload fonts");
+            },
+            move |_run, ui| {
+                unsafe {imgui::sys::igStyleColorsLight(std::ptr::null_mut());}
+
+                let display_size = ui.io().display_size;
+                
+                if let Some(window) = ui.window("FlowState")
+                    .position([0.0, 0.0], Condition::Always)
+                    .size(display_size, Condition::Always)
+                    .title_bar(false)
+                    .resizable(false)
+                    .movable(false)
+                    .scroll_bar(false)
+                    .collapsible(false)
+                    .bring_to_front_on_focus(false)
+                    .nav_focus(false)
+                    .menu_bar(true)
+                    .begin()
+                {
+                    self.draw(ui);
+                    window.end();
+                }
             }
-        });
+        );
     }
 
     fn draw(&mut self, ui: &Ui) {
@@ -359,6 +376,8 @@ impl Gui {
         let team_name_cstr = std::ffi::CString::new(team.name.clone()).unwrap();
         let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_DefaultOpen;
         let expand_team = unsafe {
+            let bold = self.bold_font.borrow().unwrap();
+            let _h = ui.push_font(bold);
             imgui::sys::igTreeNodeEx_Str(team_name_cstr.as_ptr(), flags as i32)
         };
         self.draw_gantt_chart_resources_team_popup(ui, team_id, &team);
@@ -392,6 +411,8 @@ impl Gui {
         let resource_name_cstr = std::ffi::CString::new(resource.name.clone()).unwrap();
         let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_DefaultOpen;
         let expand_resource = unsafe {
+            let bold = self.bold_font.borrow().unwrap();
+            let _h = ui.push_font(bold);
             imgui::sys::igTreeNodeEx_Str(resource_name_cstr.as_ptr(), flags as i32)
         };
         self.draw_gantt_chart_resources_team_resource_popup(ui, resource_id, &resource);
@@ -420,7 +441,7 @@ impl Gui {
         ui.table_next_column();
         let _task_token_id = ui.push_id_int(*task_id as i32);
         let task = self.project.flow_state().tasks.get(task_id).unwrap().clone();
-        let task_title_cstr = std::ffi::CString::new(format!("{} ({})", task.title, task.ticket)).unwrap();
+        let task_title_cstr = std::ffi::CString::new(format!("{} - {}", task.ticket, task.title)).unwrap();
         let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_Bullet;
         let expand_task = unsafe {
             imgui::sys::igTreeNodeEx_Str(task_title_cstr.as_ptr(), flags as i32)
