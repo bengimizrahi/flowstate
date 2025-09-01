@@ -36,11 +36,12 @@ pub struct Gui {
 struct DrawingAids {
     previous_alloc: Option<Fraction>,
     previous_rect: Option<(ImVec2, ImVec2)>,
+    row_counter: usize,
 }
 
 impl DrawingAids {
     pub fn new() -> Self {
-        DrawingAids { previous_alloc: None, previous_rect: None }
+        DrawingAids { previous_alloc: None, previous_rect: None, row_counter: 0 }
     }
 }
 
@@ -223,7 +224,6 @@ impl Gui {
                         }
                         if can_create_milestone {
                             ui.close_current_popup();
-                            //self.flow_state.create_milestone(self.milestone_input_text_buffer.clone()).unwrap();
                             self.milestone_input_text_buffer.clear();
                         }
                         child_window.end();
@@ -371,7 +371,7 @@ impl Gui {
     fn draw_gantt_chart_resources_contents(&mut self, ui: &Ui) {
         let team_ids: Vec<TeamId> = self.project.flow_state().teams.iter()
             .map(|team| team.0.clone()).collect();
-        for team_id in team_ids.iter() {
+        for team_id in team_ids.iter(){
             self.draw_gantt_chart_resources_team(ui, team_id);
         }
     }
@@ -386,25 +386,24 @@ impl Gui {
         let expand_team = unsafe {
             let bold = self.bold_font.borrow().unwrap();
             let _h = ui.push_font(bold);
+            let bg_color = ui.style_color(StyleColor::TableHeaderBg);
+            ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
             imgui::sys::igTreeNodeEx_Str(team_name_cstr.as_ptr(), flags as i32)
         };
         self.draw_gantt_chart_resources_team_popup(ui, team_id, &team);
 
         for i in 1..=self.project.flow_state().cache().num_days() {
             if ui.table_next_column() {
-                let _id = ui.push_id_usize(i);
-                let day = self.project.flow_state().cache().day(i - 1);
-                if day.weekday() == chrono::Weekday::Sat || day.weekday() == chrono::Weekday::Sun {
-                    let bg_color = ui.style_color(StyleColor::TableHeaderBg);
-                    ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
-                }
+                let bg_color = ui.style_color(StyleColor::TableHeaderBg);
+                ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
             }
         }
 
         if expand_team {
             let resources: Vec<ResourceId> = self.project.flow_state().teams[team_id]
                 .resources.iter().map(|r| r.clone()).collect();
-            for resource_id in resources.iter() {
+            for (i, resource_id) in resources.iter().enumerate() {
+                self.drawing_aids.row_counter = i;
                 self.draw_gantt_chart_resources_team_resource(ui, resource_id);
             }
             unsafe {imgui::sys::igTreePop();}
@@ -429,7 +428,7 @@ impl Gui {
             if ui.table_next_column() {
                 let _id = ui.push_id_usize(i);
                 let day = self.project.flow_state().cache().day(i - 1);
-                self.draw_weekend(ui, &day);
+                self.draw_cell_background(ui, &day);
                 self.draw_absence(ui, &day, resource_id, &resource);
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
@@ -460,7 +459,7 @@ impl Gui {
             if ui.table_next_column() {
                 let _day_token_id = ui.push_id_usize(i);
                 let day = self.project.flow_state().cache().day(i - 1);
-                self.draw_weekend(ui, &day);
+                self.draw_cell_background(ui, &day);
                 self.draw_alloc(ui, &day, resource_id, &resource, task_id, &task);
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
@@ -475,9 +474,16 @@ impl Gui {
     
     }
 
-    fn draw_weekend(&mut self, ui: &Ui, day: &NaiveDate) {
+    fn draw_cell_background(&mut self, ui: &Ui, day: &NaiveDate) {
         if day.weekday() == chrono::Weekday::Sat || day.weekday() == chrono::Weekday::Sun {
             let bg_color = ui.style_color(StyleColor::TableHeaderBg);
+            ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
+        } else {
+            let bg_color = if self.drawing_aids.row_counter % 2 == 0 {
+                ui.style_color(StyleColor::TableRowBg)
+            } else {
+                ui.style_color(StyleColor::TableRowBgAlt)
+            };
             ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
         }
     }
@@ -582,7 +588,8 @@ impl Gui {
                 previous_alloc: Some(*alloc),
                 previous_rect: Some((
                     ImVec2 { x: top_left[0], y: top_left[1] },
-                    ImVec2 { x: bottom_right[0], y: bottom_right[1] }))
+                    ImVec2 { x: bottom_right[0], y: bottom_right[1] })),
+                ..self.drawing_aids
             };
         } else {
             if self.drawing_aids.previous_alloc.is_some() {
@@ -603,6 +610,7 @@ impl Gui {
                 self.drawing_aids = DrawingAids{
                     previous_alloc: None,
                     previous_rect: None,
+                    ..self.drawing_aids
                 };
             }
         }
@@ -715,10 +723,10 @@ impl Gui {
                             self.task_duration_days);
                     }
                     ui.slider_config("##duration_slider", 0.1, 30.0)
-                        .display_format("%.0f days")
+                        .display_format("%.f days")
                         .build(&mut self.task_duration_days);
                     ui.input_float("##duration_input", &mut self.task_duration_days)
-                        .display_format("%.1f days")
+                        .display_format("%.2f days")
                         .build();
                     if ui.button("Ok") {
                         can_create_task = is_info_filled_in(
@@ -729,29 +737,27 @@ impl Gui {
                     if can_create_task {
                         ui.close_current_popup();
                         let task_id = self.project.flow_state_mut().next_task_id();
-                        match self.project.invoke_command(Command::CreateTask {
+                        self.project.invoke_command(Command::CompoundCommand {
                             timestamp: Utc::now(),
-                            id: task_id,
-                            ticket: self.ticket_input_text_buffer.clone(),
-                            title: self.task_title_input_text_buffer.clone(),
-                            duration: TaskDuration {
-                                days: self.task_duration_days as u64,
-                                fraction: (self.task_duration_days.fract() * 100.0) as u8,
-                            },
-                        }) {
-                            Err(e) => {
-                                eprintln!("Failed to create task: {e}");
-                            }
-                            Ok(_) => {
-                                self.project.invoke_command(Command::AssignTask {
+                            commands: vec![
+                                Command::CreateTask {
+                                    timestamp: Utc::now(),
+                                    id: task_id,
+                                    ticket: self.ticket_input_text_buffer.clone(),
+                                    title: self.task_title_input_text_buffer.clone(),
+                                    duration: TaskDuration {
+                                        days: self.task_duration_days as u64,
+                                        fraction: (self.task_duration_days.fract() * 100.0) as u8,
+                                    },
+                                },
+                                Command::AssignTask {
                                     timestamp: Utc::now(),
                                     task_id: task_id,
                                     resource_name: resource.name.clone(),
-                                }).unwrap_or_else(|e| {
-                                    eprintln!("Failed to assign task: {e}");
-                                });
-                            }
-                        }
+                                }
+                            ]}).unwrap_or_else(|e| {
+                                eprintln!("Failed to assign task: {e}");
+                            });
                         self.task_title_input_text_buffer.clear();
                     }
                     child_window.end();
@@ -824,7 +830,7 @@ impl Gui {
                         .display_format("%.0f days")
                         .build(&mut self.pto_duration_days);
                     ui.input_float("##duration_input", &mut self.pto_duration_days)
-                        .display_format("%.1f days")
+                        .display_format("%.2f days")
                         .build();
                     ui.same_line();
                     if ui.button("Ok") {
@@ -951,7 +957,7 @@ impl Gui {
                         .display_format("%.0f days")
                         .build(&mut self.task_duration_days);
                     ui.input_float("##duration_input", &mut self.task_duration_days)
-                        .display_format("%.1f days")
+                        .display_format("%.2f days")
                         .build();
                     if ui.button("Ok") {
                         can_update_task = is_info_filled_in(
