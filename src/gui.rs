@@ -1,5 +1,3 @@
-use core::alloc;
-use std::cell;
 
 use crate::app::*;
 use crate::support;
@@ -460,7 +458,7 @@ impl Gui {
                 let _day_token_id = ui.push_id_usize(i);
                 let day = self.project.flow_state().cache().day(i - 1);
                 self.draw_cell_background(ui, &day);
-                self.draw_alloc(ui, &day, resource_id, &resource, task_id, &task);
+                self.draw_alloc(ui, &day, Some(resource_id), task_id, &task);
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
             }
@@ -578,7 +576,7 @@ impl Gui {
         }
     }
 
-    fn draw_alloc(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, resource: &Resource, task_id: &TaskId, task: &Task) {     
+    fn draw_alloc(&mut self, ui: &Ui, day: &NaiveDate, resource_id: Option<&ResourceId>, task_id: &TaskId, task: &Task) {
         let cell_height = unsafe { igGetTextLineHeight() };
         let cell_padding = unsafe { ui.style().cell_padding };
         let effective_cell_height = cell_height + (cell_padding[1]);
@@ -588,9 +586,15 @@ impl Gui {
             (effective_cell_height * (prev_alloc as f32 / 100.0)).max(1.0)
         });
         
-        if let Some(alloc) = self.project.flow_state().cache().task_alloc_rendering.get(task_id)
-            .and_then(|r| r.get(resource_id))
-            .and_then(|r| r.get(day)) {
+        let alloc = if let Some(resource_id) = resource_id {
+            self.project.flow_state().cache().task_alloc_rendering.get(task_id)
+                .and_then(|r| r.get(resource_id))
+                .and_then(|r| r.get(day))
+        } else {
+            self.project.flow_state().cache().unassigned_task_alloc_rendering.get(task_id)
+                .and_then(|r| r.get(day))
+        };
+        if let Some(alloc) = alloc {
             let cursor_pos = unsafe {
                 let mut pos = ImVec2 { x: 0.0, y: 0.0 };
                 igGetCursorScreenPos(&mut pos);
