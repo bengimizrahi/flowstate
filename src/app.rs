@@ -850,11 +850,28 @@ impl FlowState {
                 let resource_id = resource_id.unwrap();
 
                 if let Some(task) = self.tasks.get_mut(&task_id) {
-                    task.assignee = Some(resource_id);
-                    if let Some(resource) = self.resources.get_mut(&resource_id) {
-                        resource.assigned_tasks.insert(0, task_id);
+                    match task.assignee {
+                        Some(old_assignee_id) => {
+                            let old_assignee_name = self.resources.get(&old_assignee_id)
+                                .map(|res| res.name.clone())
+                                .ok_or_else(|| format!("Old assignee resource with id {} not found", old_assignee_id))?;
+                            if let Some(old_resource) = self.resources.get_mut(&old_assignee_id) {
+                                old_resource.assigned_tasks.retain(|&x| x != task_id);
+                            }
+                            task.assignee = Some(resource_id);
+                            if let Some(resource) = self.resources.get_mut(&resource_id) {
+                                resource.assigned_tasks.insert(0, task_id);
+                            }
+                            Ok(Command::AssignTask { timestamp, task_id, resource_name: old_assignee_name })
+                        }
+                        None => {
+                            task.assignee = Some(resource_id);
+                            if let Some(resource) = self.resources.get_mut(&resource_id) {
+                                resource.assigned_tasks.insert(0, task_id);
+                            }
+                            Ok(Command::UnassignTask { timestamp, task_id })
+                        }
                     }
-                    Ok(Command::UnassignTask { timestamp, task_id })
                 } else {
                     return Err(format!("Task with id {} not found", task_id));
                 }
