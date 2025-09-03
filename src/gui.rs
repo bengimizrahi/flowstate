@@ -374,6 +374,7 @@ impl Gui {
         for team_id in team_ids.iter(){
             self.draw_gantt_chart_resources_team(ui, team_id);
         }
+        self.draw_gantt_chart_resources_team_unassigned(ui);
     }
 
     fn draw_gantt_chart_resources_team(&mut self, ui: &Ui, team_id: &TeamId) {
@@ -408,7 +409,6 @@ impl Gui {
             }
             unsafe {imgui::sys::igTreePop();}
         }
-
     }
 
     fn draw_gantt_chart_resources_team_resource(&mut self, ui: &Ui, resource_id: &ResourceId) {
@@ -461,6 +461,61 @@ impl Gui {
                 let day = self.project.flow_state().cache().day(i - 1);
                 self.draw_cell_background(ui, &day);
                 self.draw_alloc(ui, &day, resource_id, &resource, task_id, &task);
+                self.draw_milestone(ui, &day);
+                ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
+            }
+        }
+        if expand_task {
+            unsafe {imgui::sys::igTreePop();}
+        }
+    }
+
+    fn draw_gantt_chart_resources_team_unassigned(&mut self, ui: &Ui) {
+        ui.table_next_row();
+        ui.table_next_column();
+        let name_cstr = std::ffi::CString::new("Unassigned").unwrap();
+        let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_DefaultOpen;
+        let expand_unassigned = unsafe {
+            let bold = self.bold_font.borrow().unwrap();
+            let _h = ui.push_font(bold);
+            let bg_color = ui.style_color(StyleColor::TableHeaderBg);
+            ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
+            imgui::sys::igTreeNodeEx_Str(name_cstr.as_ptr(), flags as i32)
+        };
+        self.draw_gantt_chart_resources_team_unassigned_popup(ui);
+        
+        for i in 1..=self.project.flow_state().cache().num_days() {
+            if ui.table_next_column() {
+                let bg_color = ui.style_color(StyleColor::TableHeaderBg);
+                ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
+            }
+        }
+
+        if expand_unassigned {
+            for task_id in self.project.flow_state().cache().unassigned_tasks.clone().iter() {
+                self.draw_gantt_chart_resources_team_unassigned_task(ui, task_id);
+            }
+            unsafe {imgui::sys::igTreePop();}
+        }
+    }
+
+    fn draw_gantt_chart_resources_team_unassigned_task(&mut self, ui: &Ui, task_id: &TaskId) {
+        ui.table_next_row();
+        ui.table_next_column();
+        let _task_token_id = ui.push_id_int(*task_id as i32);
+        let task = self.project.flow_state().tasks.get(task_id).unwrap().clone();
+        let task_title_cstr = std::ffi::CString::new(format!("{} - {}", task.ticket, task.title)).unwrap();
+        let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_Bullet;
+        let expand_task = unsafe {
+            imgui::sys::igTreeNodeEx_Str(task_title_cstr.as_ptr(), flags as i32)
+        };
+        self.draw_gantt_chart_resources_team_unassigned_task_content_popup(ui, task_id, &task);
+
+        for i in 1..=self.project.flow_state().cache().num_days() {
+            if ui.table_next_column() {
+                let _day_token_id = ui.push_id_usize(i);
+                let day = self.project.flow_state().cache().day(i - 1);
+                self.draw_cell_background(ui, &day);
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
             }
@@ -875,171 +930,23 @@ impl Gui {
     }
 
     fn draw_gantt_chart_resources_team_resource_task_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
-        if let Some(popup) = ui.begin_popup_context_item() {
-            if ui.menu_item("Move to top") {
-                ui.close_current_popup();
-                self.project.invoke_command(Command::PrioritizeTask {
-                    timestamp: Utc::now(),
-                    task_id: *task_id,
-                    to_top: true
-                }).unwrap_or_else(|e| {
-                    gui_log!(self, "Failed to move task to top: {e}");
-                });
-            }
-            if ui.menu_item("Move up") {
-                ui.close_current_popup();
-                self.project.invoke_command(Command::PrioritizeTask {
-                    timestamp: Utc::now(),
-                    task_id: *task_id,
-                    to_top: false
-                }).unwrap_or_else(|e| {
-                    gui_log!(self, "Failed to move task up: {e}");
-                });
-            }
-            if ui.menu_item("Move down") {
-                ui.close_current_popup();
-                self.project.invoke_command(Command::DeprioritizeTask {
-                    timestamp: Utc::now(),
-                    task_id: *task_id,
-                    to_bottom: false
-                }).unwrap_or_else(|e| {
-                    gui_log!(self, "Failed to move task down: {e}");
-                });
-            }
-            if ui.menu_item("Move to bottom") {
-                ui.close_current_popup();
-                self.project.invoke_command(Command::DeprioritizeTask {
-                    timestamp: Utc::now(),
-                    task_id: *task_id,
-                    to_bottom: true
-                }).unwrap_or_else(|e| {
-                    gui_log!(self, "Failed to move task to bottom: {e}");
-                });
-            }
-            ui.separator();
-            if let Some(_assign_to_menu) = ui.begin_menu("Assign to") {
-                
-            }
-            if ui.menu_item("Unassign") {
-                ui.close_current_popup();
-            }
-            ui.disabled(false, || {
-                ui.menu_item("Delete");
-            });
-            if let Some(_update_task_menu) = ui.begin_menu("Update Task") {
-                let is_info_filled_in =
-                        |task_title: &str, ticket: &str, duration: f32| {
-                    !task_title.is_empty() && !ticket.is_empty() && duration > 0.0
-                };
-                if let Some(child_window) = ui.child_window("##update_task_menu")
-                        .size(UPDATE_TASK_CHILD_WINDOW_SIZE)
-                        .begin() {
-                    let mut can_update_task = false;
-                    if ui.input_text("##ticket", &mut self.ticket_input_text_buffer)
-                            .enter_returns_true(true)
-                            .hint("Enter ticket number")
-                            .build() {
-                        can_update_task = is_info_filled_in(
-                            &self.task_title_input_text_buffer,
-                            &self.ticket_input_text_buffer,
-                            self.task_duration_days);
-                    }
-                    if ui.input_text("##task_title", &mut self.task_title_input_text_buffer)
-                            .enter_returns_true(true)
-                            .hint("Enter task title")
-                            .build() {
-                        can_update_task = is_info_filled_in(
-                            &self.task_title_input_text_buffer,
-                            &self.ticket_input_text_buffer,
-                            self.task_duration_days);
-                    }
-                    ui.slider_config("##duration_slider", 0.1, 30.0)
-                        .display_format("%.0f days")
-                        .build(&mut self.task_duration_days);
-                    ui.input_float("##duration_input", &mut self.task_duration_days)
-                        .display_format("%.2f days")
-                        .build();
-                    if ui.button("Ok") {
-                        can_update_task = is_info_filled_in(
-                            &self.task_title_input_text_buffer,
-                            &self.ticket_input_text_buffer,
-                            self.task_duration_days);
-                    }
-                    if can_update_task {
-                        ui.close_current_popup();
-                        self.project.invoke_command(Command::UpdateTask {
-                            timestamp: Utc::now(),
-                            id: *task_id,
-                            ticket: self.ticket_input_text_buffer.clone(),
-                            title: self.task_title_input_text_buffer.clone(),
-                            duration: TaskDuration {
-                                days: self.task_duration_days as u64,
-                                fraction: (self.task_duration_days.fract() * 100.0) as u8,
-                            },
-                        }).unwrap_or_else(|e| {
-                            eprintln!("Failed to update task: {e}");
-                        });
-                        self.task_title_input_text_buffer.clear();
-                    }
-                    child_window.end();
-                }
-            }
-            if ui.menu_item("Open in JIRA") {
-                ui.close_current_popup();
-            }
-            ui.separator();
-            if let Some(_update_task_menu) = ui.begin_menu("Labels") {
 
-            }
-            ui.separator();
-            if let Some(_update_task_menu) = ui.begin_menu("Update Duration") {
-
-            }
-            popup.end();
-        }
     }
-    
+
     fn draw_gantt_chart_resources_team_resource_task_content_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
-        // if let Some(popup) = ui.begin_popup_context_item() {
-        //     if let Some(_edit_task_menu) = ui.begin_menu("Edit Task") {
-        //         if let Some(child_window) = ui.child_window("##edit_task_menu")
-        //                 .size([140.0, 20.0])
-        //                 .begin() {
-        //             let mut can_edit_task = false;
-        //             if ui.input_text("##edit_task_name", &mut self.task_input_text_buffer)
-        //                     .enter_returns_true(true)
-        //                     .hint(task.name.clone())
-        //                     .build() {
-        //                 can_edit_task = !self.task_input_text_buffer.is_empty();
-        //             }
-        //             ui.same_line();
-        //             if ui.button("Ok") {
-        //                 can_edit_task = !self.task_input_text_buffer.is_empty();
-        //             }
-        //             if can_edit_task {
-        //                 ui.close_current_popup();
-        //                 self.project.invoke_command(Command::EditTask {
-        //                     timestamp: Utc::now(),
-        //                     id: *task_id,
-        //                     new_name: self.task_input_text_buffer.clone(),
-        //                 }).unwrap_or_else(|e| {
-        //                     eprintln!("Failed to edit task: {e}");
-        //                 });
-        //                 self.task_input_text_buffer.clear();
-        //             }
-        //             child_window.end();
-        //         }
-        //     }
-        //     if ui.menu_item("Delete Task") {
-        //         self.project.invoke_command(Command::DeleteTask {
-        //             timestamp: Utc::now(),
-        //             id: task.id,
-        //         }).unwrap_or_else(|e| {
-        //             eprintln!("Failed to delete task: {e}");
-        //         });
-        //     }
-        //     popup.end();
-        // }
+
+    }
+
+    fn draw_gantt_chart_resources_team_unassigned_popup(&mut self, ui: &Ui) {
+
+    }
+
+    fn draw_gantt_chart_resources_team_unassigned_task_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
+
+    }
+
+    fn draw_gantt_chart_resources_team_unassigned_task_content_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
+
     }
 }
 
