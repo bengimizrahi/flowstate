@@ -1277,7 +1277,7 @@ pub struct FlowStateCache {
     start_date: NaiveDate,
     end_date: NaiveDate,
     date_to_milestones: BTreeMap<NaiveDate, Vec<Milestone>>,
-    unassigned_tasks: Vec<TaskId>,
+    pub unassigned_tasks: Vec<TaskId>,
     pub task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>>,
     pub resource_absence_rendering: HashMap<ResourceId, HashMap<NaiveDate, Fraction>>,
 }
