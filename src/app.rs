@@ -1295,6 +1295,7 @@ pub struct FlowStateCache {
     end_date: NaiveDate,
     date_to_milestones: BTreeMap<NaiveDate, Vec<Milestone>>,
     pub unassigned_tasks: Vec<TaskId>,
+    pub unassigned_task_alloc_rendering: HashMap<TaskId, HashMap<NaiveDate, Fraction>>,
     pub task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>>,
     pub resource_absence_rendering: HashMap<ResourceId, HashMap<NaiveDate, Fraction>>,
 }
@@ -1306,6 +1307,7 @@ impl FlowStateCache {
             end_date: Utc::now().date_naive(),
             date_to_milestones: BTreeMap::new(),
             unassigned_tasks: Vec::new(),
+            unassigned_task_alloc_rendering: HashMap::new(),
             task_alloc_rendering: HashMap::new(),
             resource_absence_rendering: HashMap::new(),
         }
@@ -1420,6 +1422,28 @@ impl FlowStateCache {
                 }
             }
         }
+        /* for each unassigned task:
+         *   date = today
+         *   while remaining_alloc > 0:
+         *     work_to_allocate = min(1, remaining_alloc)
+         *     unassigned_task_alloc_rendering[task_id][date] = work_to_allocate
+         *     remaining_alloc -= work_to_allocate
+         *     date += 1 day
+         */
+        let mut unassigned_task_alloc_rendering: HashMap<TaskId, HashMap<NaiveDate, Fraction>> = HashMap::new();
+        let today = Utc::now().date_naive();
+        for task_id in &flow_state.cache().unassigned_tasks {
+            let mut remaining_alloc = remaining_durations.get(task_id)
+                .cloned()
+                .unwrap_or(TaskDuration { days: 0, fraction: 0 });
+            let mut date = today;
+            while remaining_alloc > (TaskDuration { days: 0, fraction: 0 }) {
+                let work_to_allocate = remaining_alloc.min(TaskDuration { days: 1, fraction: 1 });
+                unassigned_task_alloc_rendering.entry(*task_id).or_default().insert(date, work_to_allocate.into());
+                remaining_alloc -= work_to_allocate;
+                date += Duration::days(1);
+            }
+        }
         let mut start_date = flow_state.milestones.iter()
             .map(|m| m.date)
             .min()
@@ -1452,6 +1476,7 @@ impl FlowStateCache {
             end_date,
             date_to_milestones,
             unassigned_tasks,
+            unassigned_task_alloc_rendering,
             task_alloc_rendering,
             resource_absence_rendering,
         }
