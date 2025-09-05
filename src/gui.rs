@@ -555,10 +555,8 @@ impl Gui {
                 pos
             };
 
-            // Calculate the height of the absence rectangle based on percentage
             let absence_height = (effective_cell_height * (*absence as f32 / 100.0)).max(1.0);
 
-            // Draw the absence rectangle from the top of the cell
             let draw_list = ui.get_window_draw_list();
             let top_left = [cursor_pos.x, cursor_pos.y];
             let bottom_right = [cursor_pos.x + effective_cell_width, cursor_pos.y + absence_height];
@@ -569,7 +567,6 @@ impl Gui {
                 .filled(true)
                 .build();
 
-            // Draw border around the absence rectangle
             draw_list.add_rect(top_left, bottom_right, border_color)
                 .thickness(1.0)
                 .build();
@@ -602,10 +599,8 @@ impl Gui {
                 pos
             };
 
-            // Calculate the height of the allocation rectangle based on percentage
             let alloc_height = (effective_cell_height * (*alloc as f32 / 100.0)).max(1.0);
 
-            // Draw the allocation rectangle from the bottom of the cell, extending into padding
             let draw_list = ui.get_window_draw_list();
             let top_left = [cursor_pos.x, cursor_pos.y + effective_cell_height - alloc_height];
             let bottom_right = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height];
@@ -624,7 +619,6 @@ impl Gui {
                     .thickness(1.0)
                     .build();
             } else {
-                // draw the left border to black
                 let left_top = [cursor_pos.x, cursor_pos.y + effective_cell_height - alloc_height];
                 let left_bottom = [cursor_pos.x, cursor_pos.y + effective_cell_height];
                 draw_list.add_line(left_top, left_bottom, border_color)
@@ -1071,19 +1065,79 @@ impl Gui {
     }
 
     fn draw_gantt_chart_resources_team_resource_task_content_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
-
+        /* for worklog of tasks */
     }
 
     fn draw_gantt_chart_resources_team_unassigned_popup(&mut self, ui: &Ui) {
-
+        let is_info_filled_in =
+                |task_title: &str, ticket: &str, duration: f32| {
+            !task_title.is_empty() && !ticket.is_empty() && duration > 0.0
+        };
+        if let Some(popup) = ui.begin_popup_context_item() {
+            if let Some(_create_task_menu) = ui.begin_menu("Create Task") {
+                if let Some(child_window) = ui.child_window("##create_task_menu")
+                        .size(CREATE_TASK_CHILD_WINDOW_SIZE)
+                        .begin() {
+                    let mut can_create_task = false;
+                    if ui.input_text("##ticket", &mut self.ticket_input_text_buffer)
+                            .enter_returns_true(true)
+                            .hint("Enter ticket number")
+                            .build() {
+                        can_create_task = is_info_filled_in(
+                            &self.task_title_input_text_buffer,
+                            &self.ticket_input_text_buffer,
+                            self.task_duration_days);
+                    }
+                    if ui.input_text("##task_title", &mut self.task_title_input_text_buffer)
+                            .enter_returns_true(true)
+                            .hint("Enter task title")
+                            .build() {
+                        can_create_task = is_info_filled_in(
+                            &self.task_title_input_text_buffer,
+                            &self.ticket_input_text_buffer,
+                            self.task_duration_days);
+                    }
+                    ui.slider_config("##duration_slider", 0.1, 30.0)
+                        .display_format("%.f days")
+                        .build(&mut self.task_duration_days);
+                    ui.input_float("##duration_input", &mut self.task_duration_days)
+                        .display_format("%.2f days")
+                        .build();
+                    if ui.button("Ok") {
+                        can_create_task = is_info_filled_in(
+                            &self.task_title_input_text_buffer,
+                            &self.ticket_input_text_buffer,
+                            self.task_duration_days);
+                    }
+                    if can_create_task {
+                        ui.close_current_popup();
+                        let task_id = self.project.flow_state_mut().next_task_id();
+                        self.project.invoke_command(Command::CreateTask {
+                            timestamp: Utc::now(),
+                            id: task_id,
+                            ticket: self.ticket_input_text_buffer.clone(),
+                            title: self.task_title_input_text_buffer.clone(),
+                            duration: TaskDuration {
+                                days: self.task_duration_days as u64,
+                                fraction: (self.task_duration_days.fract() * 100.0) as u8,
+                            },
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to create task: {e}");
+                        });
+                        self.task_title_input_text_buffer.clear();
+                    }
+                    child_window.end();
+                }
+            }
+        }
     }
 
     fn draw_gantt_chart_resources_team_unassigned_task_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
-
+        /* for updating unassigned tasks */
     }
 
     fn draw_gantt_chart_resources_team_unassigned_task_content_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
-
+        /* for worklog of unassigned tasks */
     }
 }
 
