@@ -986,6 +986,12 @@ impl Gui {
                 }
             }
             if ui.menu_item("Unassign") {
+                self.project.invoke_command(Command::UnassignTask {
+                    timestamp: Utc::now(),
+                    task_id: *task_id,
+                }).unwrap_or_else(|e| {
+                    gui_log!(self, "Failed to unassign task: {e}");
+                });
                 ui.close_current_popup();
             }
             ui.disabled(true, || {
