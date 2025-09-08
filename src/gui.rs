@@ -1094,9 +1094,6 @@ impl Gui {
                     if ui.button(">>") {
                         new_duration_days = Some(task.duration + TaskDuration { days: 7, fraction: 0 });
                     }
-                    if new_duration_days.is_some() {
-                        println!("New duration days: {:?}", new_duration_days);
-                    }
                     if let Some(new_duration_days) = new_duration_days {
                         self.project.invoke_command(Command::UpdateTask {
                             timestamp: Utc::now(),
