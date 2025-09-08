@@ -1192,6 +1192,136 @@ impl Gui {
                     }
                 }
             }
+            if ui.menu_item("Delete") {
+                self.project.invoke_command(Command::DeleteTask {
+                    timestamp: Utc::now(),
+                    id: *task_id,
+                }).unwrap_or_else(|e| {
+                    gui_log!(self, "Failed to delete task: {e}");
+                });
+            }
+            if let Some(_update_task_menu) = ui.begin_menu("Update Task") {
+                let is_info_filled_in =
+                        |task_title: &str, ticket: &str, duration: f32| {
+                    !task_title.is_empty() && !ticket.is_empty() && duration > 0.0
+                };
+                if let Some(_child_window) = ui.child_window("##update_task_menu")
+                        .size(UPDATE_TASK_CHILD_WINDOW_SIZE)
+                        .begin() {
+                    let mut can_update_task = false;
+                    if ui.input_text("##ticket", &mut self.ticket_input_text_buffer)
+                            .enter_returns_true(true)
+                            .hint("Enter ticket number")
+                            .build() {
+                        can_update_task = is_info_filled_in(
+                            &self.task_title_input_text_buffer,
+                            &self.ticket_input_text_buffer,
+                            self.task_duration_days);
+                    }
+                    if ui.input_text("##task_title", &mut self.task_title_input_text_buffer)
+                            .enter_returns_true(true)
+                            .hint("Enter task title")
+                            .build() {
+                        can_update_task = is_info_filled_in(
+                            &self.task_title_input_text_buffer,
+                            &self.ticket_input_text_buffer,
+                            self.task_duration_days);
+                    }
+                    ui.slider_config("##duration_slider", 0.1, 30.0)
+                        .display_format("%.0f days")
+                        .build(&mut self.task_duration_days);
+                    ui.input_float("##duration_input", &mut self.task_duration_days)
+                        .display_format("%.2f days")
+                        .build();
+                    if ui.button("Ok") {
+                        can_update_task = is_info_filled_in(
+                            &self.task_title_input_text_buffer,
+                            &self.ticket_input_text_buffer,
+                            self.task_duration_days);
+                    }
+                    if can_update_task {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::UpdateTask {
+                            timestamp: Utc::now(),
+                            id: *task_id,
+                            ticket: self.ticket_input_text_buffer.clone(),
+                            title: self.task_title_input_text_buffer.clone(),
+                            duration: TaskDuration {
+                                days: self.task_duration_days as u64,
+                                fraction: (self.task_duration_days.fract() * 100.0) as u8,
+                            },
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                        self.task_title_input_text_buffer.clear();
+                    }
+                }
+            }
+            if ui.menu_item("Open in JIRA") {
+                self.open_task_in_jira(ui, &task);
+                ui.close_current_popup();
+            }
+            ui.separator();
+            if let Some(_update_task_menu) = ui.begin_menu("Labels") {
+
+            }
+            ui.separator();
+            if let Some(_update_task_menu) = ui.begin_menu("Update Duration") {
+                if let Some(_child_window) = ui.child_window("##update_duration_menu")
+                        .size(UPDATE_TASK_CHILD_WINDOW_SIZE)
+                        .begin() {
+                    ui.slider_config("##duration", 0.0, 30.0)
+                        .display_format("%.0f days")
+                        .build(&mut self.task_duration_days);
+                    if ui.button("Ok") {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::UpdateTask {
+                            timestamp: Utc::now(),
+                            id: *task_id,
+                            ticket: task.ticket.clone(),
+                            title: task.title.clone(),
+                            duration: TaskDuration {
+                                days: self.task_duration_days as u64,
+                                fraction: (self.task_duration_days.fract() * 100.0) as u8,
+                            },
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                    let mut new_duration_days = None;
+                    if ui.button("<<") {
+                        new_duration_days = Some(TaskDuration::zero()
+                            .max(task.duration - TaskDuration { days: 7, fraction: 0 }));
+                    }
+                    ui.same_line();
+                    if ui.button("<") {
+                        new_duration_days = Some(TaskDuration::zero()
+                            .max(task.duration - TaskDuration { days: 1, fraction: 0 }));
+                    }
+                    ui.same_line();
+                    if ui.button(">") {
+                        new_duration_days = Some(task.duration + TaskDuration { days: 1, fraction: 0 });
+                    }
+                    ui.same_line();
+                    if ui.button(">>") {
+                        new_duration_days = Some(task.duration + TaskDuration { days: 7, fraction: 0 });
+                    }
+                    if new_duration_days.is_some() {
+                        println!("New duration days: {:?}", new_duration_days);
+                    }
+                    if let Some(new_duration_days) = new_duration_days {
+                        self.project.invoke_command(Command::UpdateTask {
+                            timestamp: Utc::now(),
+                            id: *task_id,
+                            ticket: task.ticket.clone(),
+                            title: task.title.clone(),
+                            duration: new_duration_days,
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                }
+            }
         }
     }
 
