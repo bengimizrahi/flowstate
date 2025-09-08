@@ -505,7 +505,7 @@ impl Gui {
         let expand_task = unsafe {
             imgui::sys::igTreeNodeEx_Str(task_title_cstr.as_ptr(), flags as i32)
         };
-        self.draw_gantt_chart_resources_team_unassigned_task_content_popup(ui, task_id, &task);
+        self.draw_gantt_chart_resources_team_unassigned_task_popup(ui, task_id, &task);
 
         for i in 1..=self.project.flow_state().cache().num_days() {
             if ui.table_next_column() {
@@ -1176,7 +1176,23 @@ impl Gui {
     }
 
     fn draw_gantt_chart_resources_team_unassigned_task_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
-        /* for updating unassigned tasks */
+        if let Some(_popup) = ui.begin_popup_context_item() {
+            if let Some(_assign_to_menu) = ui.begin_menu("Assign to") {
+                let mut resources: Vec<_> = self.project.flow_state().resources.values().cloned().collect();
+                resources.sort_by(|a, b| a.name.cmp(&b.name));
+                for resource in resources {
+                    if ui.menu_item(resource.name.clone()) {
+                        self.project.invoke_command(Command::AssignTask {
+                            timestamp: Utc::now(),
+                            task_id: *task_id,
+                            resource_name: resource.name,
+                        }).unwrap_or_else(|e| {
+                            gui_log!(self, "Failed to assign task to resource: {e}");
+                        });
+                    }
+                }
+            }
+        }
     }
 
     fn draw_gantt_chart_resources_team_unassigned_task_content_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
