@@ -446,6 +446,9 @@ impl Gui {
         let expand_task = unsafe {
             imgui::sys::igTreeNodeEx_Str(task_title_cstr.as_ptr(), flags as i32)
         };
+        if ui.is_item_hovered() && ui.is_mouse_clicked(MouseButton::Middle) {
+            self.open_task_in_jira(ui, &task);
+        }
         self.draw_gantt_chart_resources_team_resource_task_popup(ui, task_id, &task);
 
         for i in 1..=self.project.flow_state().cache().num_days() {
@@ -1042,6 +1045,7 @@ impl Gui {
                 }
             }
             if ui.menu_item("Open in JIRA") {
+                self.open_task_in_jira(ui, &task);
                 ui.close_current_popup();
             }
             ui.separator();
@@ -1178,6 +1182,11 @@ impl Gui {
     fn draw_gantt_chart_resources_team_unassigned_task_content_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
         /* for worklog of unassigned tasks */
     }
+
+    fn open_task_in_jira(&mut self, ui:& Ui, task: &Task) {
+        let jira_url = format!("https://juniper-cto.atlassian.net/browse/{}", task.ticket);
+        webbrowser::open(&jira_url).unwrap_or_else(|e| {
+            gui_log!(self, "Failed to open JIRA URL: {}", e);
+        });
+    }
 }
-
-
