@@ -505,6 +505,9 @@ impl Gui {
         let expand_task = unsafe {
             imgui::sys::igTreeNodeEx_Str(task_title_cstr.as_ptr(), flags as i32)
         };
+        if ui.is_item_hovered() && ui.is_mouse_clicked(MouseButton::Middle) {
+            self.open_task_in_jira(ui, &task);
+        }
         self.draw_gantt_chart_resources_team_unassigned_task_popup(ui, task_id, &task);
 
         for i in 1..=self.project.flow_state().cache().num_days() {
