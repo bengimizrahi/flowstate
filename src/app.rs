@@ -1374,49 +1374,38 @@ impl FlowStateCache {
         let mut most_recent_alloc_date = chrono::Utc::now().date_naive();
         let mut task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>> = HashMap::new();
         for (resource_id, resource) in &flow_state.resources {
-            println!("  Initiating allocation for resource: {}", resource_id);
             let mut cursor = AllocCursor::new();
-            println!("  Initiating cursor at date {}, alloced_amount: {:?}", cursor.date, cursor.alloced_amount);
             for task_id in &resource.assigned_tasks {
                 if let Some(_task) = flow_state.tasks.get(task_id) {
-                    println!("Allocating for task: {}", task_id);
                     let mut remaining_alloc = remaining_durations.get(task_id)
                         .cloned()
                         .unwrap_or(TaskDuration { days: 0, fraction: 0 });
-                    println!("  Remaining alloc: {:?}", remaining_alloc);
                     while remaining_alloc > (TaskDuration { days: 0, fraction: 0 }) {
                         let absence_for_current_day = resource_absence_rendering.get(resource_id)
                             .and_then(|absence_map| absence_map.get(&cursor.date))
                             .copied()
                             .unwrap_or(0);
-                        println!("  Cursor at date {}, alloced_amount: {:?}, absence_for_current_day: {}", cursor.date, cursor.alloced_amount, absence_for_current_day);
                         let total_worklog_for_current_day = flow_state.worklogs.iter()
                             .filter_map(|(_, resource_map)| resource_map.get(resource_id))
                             .filter_map(|date_map| date_map.get(&cursor.date))
                             .map(|w| w.fraction)
                             .sum::<Fraction>();
-                        println!("    total_worklog_for_current_day: {}", total_worklog_for_current_day);
                         let remaining_alloc_for_current_day = TaskDuration { days: 1, fraction: 0 } 
                             - cursor.alloced_amount
                             - TaskDuration { days: 0, fraction: total_worklog_for_current_day }
                             - TaskDuration { days: 0, fraction: absence_for_current_day };
-                        println!("    remaining_alloc_for_current_day: {:?}", remaining_alloc_for_current_day);
                         let work_to_allocate = remaining_alloc.min(remaining_alloc_for_current_day);
-                        println!("    work_to_allocate: {:?}", work_to_allocate);
                         if work_to_allocate > (TaskDuration { days: 0, fraction: 0 }) {
                             task_alloc_rendering.entry(*task_id).or_default()
                                 .entry(*resource_id).or_default()
                                 .insert(cursor.date, work_to_allocate.into());
                         }
                         remaining_alloc -= work_to_allocate;
-                        println!("    remaining_alloc: {:?}", remaining_alloc);
                         if remaining_alloc == (TaskDuration { days: 0, fraction: 0 }) {
                             cursor += work_to_allocate;
-                            println!("  Finished allocation for task {}, advanced cursor to date {}, alloced_amount: {:?}", task_id, cursor.date, cursor.alloced_amount);
                         } else {
                             cursor.advance_to_next_working_day();
                             most_recent_alloc_date = most_recent_alloc_date.max(cursor.date);
-                            println!("  Advanced cursor to next working day {}, alloced_amount: {:?}", cursor.date, cursor.alloced_amount);
                         }
                     }
                 }
@@ -1459,10 +1448,8 @@ impl FlowStateCache {
             .max()
             .unwrap_or(end_date));
         end_date = end_date.max(most_recent_alloc_date);
-        println!("Determined end date: {}", end_date);
         end_date = end_date.checked_add_signed(Duration::days(30))
             .unwrap_or(NaiveDate::MAX);
-        println!("Determined date range: {} to {}", start_date, end_date);
         FlowStateCache {
             start_date,
             end_date,
