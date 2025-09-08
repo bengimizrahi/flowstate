@@ -1422,14 +1422,6 @@ impl FlowStateCache {
                 }
             }
         }
-        /* for each unassigned task:
-         *   date = today
-         *   while remaining_alloc > 0:
-         *     work_to_allocate = min(1, remaining_alloc)
-         *     unassigned_task_alloc_rendering[task_id][date] = work_to_allocate
-         *     remaining_alloc -= work_to_allocate
-         *     date += 1 day
-         */
         let mut unassigned_task_alloc_rendering: HashMap<TaskId, HashMap<NaiveDate, Fraction>> = HashMap::new();
         let today = Utc::now().date_naive();
         for task_id in &flow_state.cache().unassigned_tasks {
