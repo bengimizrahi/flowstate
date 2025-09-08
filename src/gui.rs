@@ -14,6 +14,7 @@ const RENAME_RESOURCE_CHILD_WINDOW_SIZE: [f32; 2] = CREATE_RESOURCE_CHILD_WINDOW
 const CREATE_TASK_CHILD_WINDOW_SIZE: [f32; 2] = [180.0, 150.0];
 const UPDATE_TASK_CHILD_WINDOW_SIZE: [f32; 2] = CREATE_TASK_CHILD_WINDOW_SIZE;
 const CREATE_MILESTONE_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 70.0];
+const SET_WORKLOG_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 70.0];
 
 pub struct Gui {
     project: Project,
@@ -25,6 +26,7 @@ pub struct Gui {
     task_title_input_text_buffer: String,
     task_duration_days: f32,
     pto_duration_days: f32,
+    worklog_fraction: u8,
     milestone_input_text_buffer: String,
     milestone_date_input_text_buffer: String,
     logs: Vec<String>,
@@ -63,6 +65,7 @@ impl Gui {
             task_title_input_text_buffer: String::new(),
             task_duration_days: 1.0,
             pto_duration_days: 0.0,
+            worklog_fraction: 0,
             milestone_input_text_buffer: String::new(),
             milestone_date_input_text_buffer: String::new(),
             logs: Vec::new(),
@@ -459,6 +462,7 @@ impl Gui {
                 self.draw_alloc(ui, &day, Some(resource_id), task_id, &task);
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
+                self.draw_gantt_chart_resources_team_resource_task_content_popup(ui, resource_id, &resource, task_id, &task, &day);
             }
         }
         if expand_task {
@@ -1113,6 +1117,31 @@ impl Gui {
         }
     }
 
+    fn draw_gantt_chart_resources_team_resource_task_content_popup(&mut self, ui: &Ui, resource_id: &ResourceId, resource: &Resource, task_id: &TaskId, task: &Task, day: &NaiveDate) {
+        if let Some(_popup) = ui.begin_popup_context_item() {
+            if let Some(_worklog_menu) = ui.begin_menu("Set Worklog") {
+                if let Some(_child_window) = ui.child_window("##set_worklog")
+                        .size(SET_WORKLOG_CHILD_WINDOW_SIZE)
+                        .begin() {
+                    ui.slider_config("##fraction", 0, 100)
+                        .build(&mut self.worklog_fraction);
+                    if ui.button("Ok") {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::SetWorklog {
+                            timestamp: Utc::now(),
+                            task_id: *task_id,
+                            date: *day,
+                            resource_name: resource.name.clone(),
+                            fraction: self.worklog_fraction,
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     fn draw_gantt_chart_resources_team_unassigned_popup(&mut self, ui: &Ui) {
         let is_info_filled_in =
                 |task_title: &str, ticket: &str, duration: f32| {
@@ -1267,7 +1296,65 @@ impl Gui {
 
             }
             ui.separator();
-            if let Some(_update_task_menu) = ui.begin_menu("Update Duration") {
+            if let Some(_update_duration_menu) = ui.begin_menu("Update Duration") {
+                if let Some(_child_window) = ui.child_window("##update_duration_menu")
+                        .size(UPDATE_TASK_CHILD_WINDOW_SIZE)
+                        .begin() {
+                    ui.slider_config("##duration", 0.0, 30.0)
+                        .display_format("%.0f days")
+                        .build(&mut self.task_duration_days);
+                    if ui.button("Ok") {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::UpdateTask {
+                            timestamp: Utc::now(),
+                            id: *task_id,
+                            ticket: task.ticket.clone(),
+                            title: task.title.clone(),
+                            duration: TaskDuration {
+                                days: self.task_duration_days as u64,
+                                fraction: (self.task_duration_days.fract() * 100.0) as u8,
+                            },
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                    let mut new_duration_days = None;
+                    if ui.button("<<") {
+                        new_duration_days = Some(TaskDuration::zero()
+                            .max(task.duration - TaskDuration { days: 7, fraction: 0 }));
+                    }
+                    ui.same_line();
+                    if ui.button("<") {
+                        new_duration_days = Some(TaskDuration::zero()
+                            .max(task.duration - TaskDuration { days: 1, fraction: 0 }));
+                    }
+                    ui.same_line();
+                    if ui.button(">") {
+                        new_duration_days = Some(task.duration + TaskDuration { days: 1, fraction: 0 });
+                    }
+                    ui.same_line();
+                    if ui.button(">>") {
+                        new_duration_days = Some(task.duration + TaskDuration { days: 7, fraction: 0 });
+                    }
+                    if let Some(new_duration_days) = new_duration_days {
+                        self.project.invoke_command(Command::UpdateTask {
+                            timestamp: Utc::now(),
+                            id: *task_id,
+                            ticket: task.ticket.clone(),
+                            title: task.title.clone(),
+                            duration: new_duration_days,
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    fn draw_gantt_chart_resources_team_unassigned_task_content_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task, day: &NaiveDate) {
+        if let Some(_popup) = ui.begin_popup_context_item() {
+            if let Some(_update_duration_menu) = ui.begin_menu("Update Duration") {
                 if let Some(_child_window) = ui.child_window("##update_duration_menu")
                         .size(UPDATE_TASK_CHILD_WINDOW_SIZE)
                         .begin() {
@@ -1324,10 +1411,6 @@ impl Gui {
                 }
             }
         }
-    }
-
-    fn draw_gantt_chart_resources_team_unassigned_task_content_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
-        /* for worklog of unassigned tasks */
     }
 
     fn open_task_in_jira(&mut self, ui:& Ui, task: &Task) {
