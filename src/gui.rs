@@ -512,6 +512,7 @@ impl Gui {
                 let _day_token_id = ui.push_id_usize(i);
                 let day = self.project.flow_state().cache().day(i - 1);
                 self.draw_cell_background(ui, &day);
+                self.draw_alloc(ui, &day, None, task_id, &task);
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
             }
