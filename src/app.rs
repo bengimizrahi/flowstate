@@ -1159,7 +1159,7 @@ impl FlowState {
                 let mut flow_state_clone = self.clone();
                 let mut undo_commands = Vec::new();
                 for cmd in commands {
-                    let undo_cmd = flow_state_clone.execute_command_generate_inverse_and_rebuild_cache(cmd)?;
+                    let undo_cmd = flow_state_clone.execute_command_and_generate_inverse(cmd)?;
                     undo_commands.push(undo_cmd);
                 }
                 undo_commands.reverse();
@@ -1371,7 +1371,7 @@ impl FlowStateCache {
             })
             .collect();
 
-        let mut most_recent_alloc_date = chrono::Utc::now().date_naive();
+        let mut most_farther_alloc_date = chrono::Utc::now().date_naive();
         let mut task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>> = HashMap::new();
         for (resource_id, resource) in &flow_state.resources {
             let mut cursor = AllocCursor::new();
@@ -1405,7 +1405,7 @@ impl FlowStateCache {
                             cursor += work_to_allocate;
                         } else {
                             cursor.advance_to_next_working_day();
-                            most_recent_alloc_date = most_recent_alloc_date.max(cursor.date);
+                            most_farther_alloc_date = most_farther_alloc_date.max(cursor.date);
                         }
                     }
                 }
@@ -1413,17 +1413,18 @@ impl FlowStateCache {
         }
         let mut unassigned_task_alloc_rendering: HashMap<TaskId, HashMap<NaiveDate, Fraction>> = HashMap::new();
         let today = Utc::now().date_naive();
-        for task_id in &flow_state.cache().unassigned_tasks {
+        for task_id in &unassigned_tasks {
             let mut remaining_alloc = remaining_durations.get(task_id)
                 .cloned()
                 .unwrap_or(TaskDuration { days: 0, fraction: 0 });
             let mut date = today;
             while remaining_alloc > (TaskDuration { days: 0, fraction: 0 }) {
-                let work_to_allocate = remaining_alloc.min(TaskDuration { days: 1, fraction: 1 });
+                let work_to_allocate = remaining_alloc.min(TaskDuration { days: 1, fraction: 0 });
                 unassigned_task_alloc_rendering.entry(*task_id).or_default().insert(date, work_to_allocate.into());
                 remaining_alloc -= work_to_allocate;
                 date += Duration::days(1);
             }
+            most_farther_alloc_date = most_farther_alloc_date.max(date);
         }
         let mut start_date = flow_state.milestones.iter()
             .map(|m| m.date)
@@ -1447,7 +1448,7 @@ impl FlowStateCache {
             .cloned()
             .max()
             .unwrap_or(end_date));
-        end_date = end_date.max(most_recent_alloc_date);
+        end_date = end_date.max(most_farther_alloc_date);
         end_date = end_date.checked_add_signed(Duration::days(30))
             .unwrap_or(NaiveDate::MAX);
         FlowStateCache {
