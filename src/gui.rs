@@ -99,7 +99,7 @@ impl Gui {
 
                 let display_size = ui.io().display_size;
                 
-                if let Some(window) = ui.window("FlowState")
+                if let Some(_window) = ui.window("FlowState")
                     .position([0.0, 0.0], Condition::Always)
                     .size(display_size, Condition::Always)
                     .title_bar(false)
@@ -113,7 +113,6 @@ impl Gui {
                     .begin()
                 {
                     self.draw(ui);
-                    window.end();
                 }
             }
         );
@@ -136,7 +135,7 @@ impl Gui {
                 gui_log!(self, "Failed to redo: {e}");
             });
         }
-        if let Some(menu_bar) = ui.begin_menu_bar() {
+        if let Some(_menu_bar) = ui.begin_menu_bar() {
             if let Some(_file_menu) = ui.begin_menu("File") {
                 if ui.menu_item("New Project...") {
 
@@ -165,7 +164,7 @@ impl Gui {
             };
             if let Some(_action_menu) = ui.begin_menu("Insert") {
                 if let Some(_team_menu) = ui.begin_menu("Team") {
-                    if let Some(child_window) = ui.child_window("##team_menu")
+                    if let Some(_child_window) = ui.child_window("##team_menu")
                             .size(CREATE_TEAM_CHILD_WINDOW_SIZE)
                             .begin() {
                         let mut can_create_team = false;
@@ -187,11 +186,10 @@ impl Gui {
                             }).unwrap();
                             self.team_input_text_buffer.clear();
                         }
-                        child_window.end();
                     }
                 }
                 if let Some(_milestone_menu) = ui.begin_menu("Milestone") {
-                    if let Some(child_window) = ui.child_window("##team_menu")
+                    if let Some(_child_window) = ui.child_window("##milestone_menu")
                             .size(CREATE_MILESTONE_CHILD_WINDOW_SIZE)
                             .begin() {
                         let mut can_create_milestone = false;
@@ -224,7 +222,6 @@ impl Gui {
                             ui.close_current_popup();
                             self.milestone_input_text_buffer.clear();
                         }
-                        child_window.end();
                     }
                 }
             };
@@ -235,7 +232,6 @@ impl Gui {
 
                 }
             };
-            menu_bar.end();
         };
     }
 
@@ -255,7 +251,7 @@ impl Gui {
                 self.draw_debug(ui);
             }
             if let Some(_log_tab_item) = ui.tab_item("Logs") {
-                if let Some(table) = ui.begin_table_with_flags("##gui_logs_table", 1, TableFlags::BORDERS | TableFlags::ROW_BG | TableFlags::SCROLL_Y) {
+                if let Some(_table) = ui.begin_table_with_flags("##gui_logs_table", 1, TableFlags::BORDERS | TableFlags::ROW_BG | TableFlags::SCROLL_Y) {
                     ui.table_setup_column("GUI Log Messages");
                     ui.table_headers_row();
                     for log in self.logs.iter().rev() {
@@ -263,7 +259,6 @@ impl Gui {
                         ui.table_next_column();
                         ui.text(log);
                     } 
-                    table.end();
                 }
             }
         }
@@ -674,9 +669,9 @@ impl Gui {
     }
 
     fn draw_gantt_chart_resources_team_popup(&mut self, ui: &Ui, team_id: &TeamId, team: &Team) {
-        if let Some(popup) = ui.begin_popup_context_item() {
+        if let Some(_popup) = ui.begin_popup_context_item() {
             if let Some(_rename_team_menu) = ui.begin_menu("Rename Team") {
-                if let Some(child_window) = ui.child_window("##rename_team_menu")
+                if let Some(_child_window) = ui.child_window("##rename_team_menu")
                         .size(RENAME_TEAM_CHILD_WINDOW_SIZE)
                         .begin() {
                     let mut can_create_team = false;
@@ -701,7 +696,6 @@ impl Gui {
                         });
                         self.team_input_text_buffer.clear();
                     }
-                    child_window.end();
                 }
             }
             if ui.menu_item("Delete Team") {
@@ -714,7 +708,7 @@ impl Gui {
             }
             ui.separator();
             if let Some(_create_resource_menu) = ui.begin_menu("Create Resource") {
-                if let Some(child_window) = ui.child_window("##create_resource_menu")
+                if let Some(_child_window) = ui.child_window("##create_resource_menu")
                         .size(CREATE_RESOURCE_CHILD_WINDOW_SIZE)
                         .begin() {
                     let mut can_create_resource = false;
@@ -739,10 +733,8 @@ impl Gui {
                         });
                         self.resource_input_text_buffer.clear();
                     }
-                    child_window.end();
                 }
             }
-            popup.end();
         }
     }
 
@@ -751,9 +743,9 @@ impl Gui {
                 |task_title: &str, ticket: &str, duration: f32| {
             !task_title.is_empty() && !ticket.is_empty() && duration > 0.0
         };
-        if let Some(popup) = ui.begin_popup_context_item() {
+        if let Some(_popup) = ui.begin_popup_context_item() {
             if let Some(_create_task_menu) = ui.begin_menu("Create Task") {
-                if let Some(child_window) = ui.child_window("##create_task_menu")
+                if let Some(_child_window) = ui.child_window("##create_task_menu")
                         .size(CREATE_TASK_CHILD_WINDOW_SIZE)
                         .begin() {
                     let mut can_create_task = false;
@@ -813,12 +805,11 @@ impl Gui {
                             });
                         self.task_title_input_text_buffer.clear();
                     }
-                    child_window.end();
                 }
             }
             ui.separator();
             if let Some(_rename_resource_menu) = ui.begin_menu("Rename Resource") {
-                if let Some(child_window) = ui.child_window("##rename_resource_menu")
+                if let Some(_child_window) = ui.child_window("##rename_resource_menu")
                         .size(RENAME_RESOURCE_CHILD_WINDOW_SIZE)
                         .begin() {
                     let mut can_create_resource = false;
@@ -843,7 +834,6 @@ impl Gui {
                         });
                         self.resource_input_text_buffer.clear();
                     }
-                    child_window.end();
                 }
             }
             if ui.menu_item("Delete Resource") {
@@ -854,7 +844,6 @@ impl Gui {
                     eprintln!("Failed to delete resource: {e}");
                 });
             }
-            popup.end();
         }
     }
 
@@ -865,7 +854,7 @@ impl Gui {
         };
         let add_or_update_pto_string;
         let mut show_remove_option = false;
-        if let Some(popup) = ui.begin_popup_context_item() {
+        if let Some(_popup) = ui.begin_popup_context_item() {
             if self.project.flow_state().cache().resource_absence_rendering.get(resource_id).is_none() ||
                     self.project.flow_state().cache().resource_absence_rendering.get(resource_id).unwrap().get(day).is_none() ||
                     *self.project.flow_state().cache().resource_absence_rendering.get(resource_id).unwrap().get(day).unwrap() == 0 {
@@ -875,7 +864,7 @@ impl Gui {
                 show_remove_option = true;
             }
             if let Some(_create_resource_menu) = ui.begin_menu(add_or_update_pto_string) {
-                if let Some(child_window) = ui.child_window("##add_or_update_pto_menu")
+                if let Some(_child_window) = ui.child_window("##add_or_update_pto_menu")
                         .size([180.0, 70.0])
                         .begin() {
                     let mut can_add_or_update_pto = false;
@@ -905,7 +894,6 @@ impl Gui {
                         });
                         self.pto_duration_days = 0.0;
                     }
-                    child_window.end();
                 }
             }
             if show_remove_option {
@@ -923,12 +911,11 @@ impl Gui {
                     });
                 }
             }
-            popup.end();
         }
     }
 
     fn draw_gantt_chart_resources_team_resource_task_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
-        if let Some(popup) = ui.begin_popup_context_item() {
+        if let Some(_popup) = ui.begin_popup_context_item() {
             if ui.menu_item("Move to top") {
                 ui.close_current_popup();
                 self.project.invoke_command(Command::PrioritizeTask {
@@ -1002,7 +989,7 @@ impl Gui {
                         |task_title: &str, ticket: &str, duration: f32| {
                     !task_title.is_empty() && !ticket.is_empty() && duration > 0.0
                 };
-                if let Some(child_window) = ui.child_window("##update_task_menu")
+                if let Some(_child_window) = ui.child_window("##update_task_menu")
                         .size(UPDATE_TASK_CHILD_WINDOW_SIZE)
                         .begin() {
                     let mut can_update_task = false;
@@ -1052,7 +1039,6 @@ impl Gui {
                         });
                         self.task_title_input_text_buffer.clear();
                     }
-                    child_window.end();
                 }
             }
             if ui.menu_item("Open in JIRA") {
@@ -1064,14 +1050,62 @@ impl Gui {
             }
             ui.separator();
             if let Some(_update_task_menu) = ui.begin_menu("Update Duration") {
-
+                if let Some(_child_window) = ui.child_window("##update_duration_menu")
+                        .size(UPDATE_TASK_CHILD_WINDOW_SIZE)
+                        .begin() {
+                    ui.slider_config("##duration", 0.0, 30.0)
+                        .display_format("%.0f days")
+                        .build(&mut self.task_duration_days);
+                    if ui.button("Ok") {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::UpdateTask {
+                            timestamp: Utc::now(),
+                            id: *task_id,
+                            ticket: task.ticket.clone(),
+                            title: task.title.clone(),
+                            duration: TaskDuration {
+                                days: self.task_duration_days as u64,
+                                fraction: (self.task_duration_days.fract() * 100.0) as u8,
+                            },
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                    let mut new_duration_days = None;
+                    if ui.button("<<") {
+                        new_duration_days = Some(TaskDuration::zero()
+                            .max(task.duration - TaskDuration { days: 7, fraction: 0 }));
+                    }
+                    ui.same_line();
+                    if ui.button("<") {
+                        new_duration_days = Some(TaskDuration::zero()
+                            .max(task.duration - TaskDuration { days: 1, fraction: 0 }));
+                    }
+                    ui.same_line();
+                    if ui.button(">") {
+                        new_duration_days = Some(task.duration + TaskDuration { days: 1, fraction: 0 });
+                    }
+                    ui.same_line();
+                    if ui.button(">>") {
+                        new_duration_days = Some(task.duration + TaskDuration { days: 7, fraction: 0 });
+                    }
+                    if new_duration_days.is_some() {
+                        println!("New duration days: {:?}", new_duration_days);
+                    }
+                    if let Some(new_duration_days) = new_duration_days {
+                        self.project.invoke_command(Command::UpdateTask {
+                            timestamp: Utc::now(),
+                            id: *task_id,
+                            ticket: task.ticket.clone(),
+                            title: task.title.clone(),
+                            duration: new_duration_days,
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                }
             }
-            popup.end();
         }
-    }
-
-    fn draw_gantt_chart_resources_team_resource_task_content_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
-        /* for worklog of tasks */
     }
 
     fn draw_gantt_chart_resources_team_unassigned_popup(&mut self, ui: &Ui) {
@@ -1079,9 +1113,9 @@ impl Gui {
                 |task_title: &str, ticket: &str, duration: f32| {
             !task_title.is_empty() && !ticket.is_empty() && duration > 0.0
         };
-        if let Some(popup) = ui.begin_popup_context_item() {
+        if let Some(_popup) = ui.begin_popup_context_item() {
             if let Some(_create_task_menu) = ui.begin_menu("Create Task") {
-                if let Some(child_window) = ui.child_window("##create_task_menu")
+                if let Some(_child_window) = ui.child_window("##create_task_menu")
                         .size(CREATE_TASK_CHILD_WINDOW_SIZE)
                         .begin() {
                     let mut can_create_task = false;
@@ -1132,7 +1166,6 @@ impl Gui {
                         });
                         self.task_title_input_text_buffer.clear();
                     }
-                    child_window.end();
                 }
             }
         }

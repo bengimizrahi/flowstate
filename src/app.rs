@@ -51,17 +51,17 @@ impl Sub for TaskDuration {
     type Output = TaskDuration;
 
     fn sub(self, other: TaskDuration) -> TaskDuration {
-        let mut total_days = self.days - other.days;
-        let mut total_fraction = self.fraction as i16 - other.fraction as i16;
+        let self_total = self.days * 100 + self.fraction as u64;
+        let other_total = other.days * 100 + other.fraction as u64;
 
-        if total_fraction < 0 {
-            total_days -= 1;
-            total_fraction += 100;
-        }
-
-        TaskDuration {
-            days: total_days,
-            fraction: total_fraction as u8,
+        if other_total <= self_total {
+            let result_total = self_total - other_total;
+            TaskDuration {
+                days: result_total / 100,
+                fraction: (result_total % 100) as u8,
+            }
+        } else {
+            TaskDuration::zero()
         }
     }
 }
@@ -350,7 +350,7 @@ pub struct Task {
     id: TaskId,
     pub ticket: String,
     pub title: String,
-    duration: TaskDuration,
+    pub duration: TaskDuration,
     label_ids: BTreeSet<LabelId>,
     assignee: Option<ResourceId>,
     watchers: BTreeSet<ResourceId>,
