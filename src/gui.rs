@@ -144,14 +144,11 @@ impl Gui {
                 if ui.menu_item("New Project...") {
 
                 }
-                if ui.menu_item("Open Project...") {
-
-                }
-                if ui.menu_item("Save Project") {
+                if ui.menu_item("Work on Existing Project...") {
 
                 }
                 if ui.menu_item("Exit") {
-
+                    std::process::exit(0);
                 }
             };
             if let Some(_edit_menu) = ui.begin_menu("Edit") {
@@ -1121,7 +1118,7 @@ impl Gui {
                     let mut new_duration_days = None;
                     if ui.button("<<") {
                         new_duration_days = Some(TaskDuration::zero()
-                            .max(task.duration - TaskDuration { days: 7, fraction: 0 }));
+                            .max(task.duration - TaskDuration { days: 5, fraction: 0 }));
                     }
                     ui.same_line();
                     if ui.button("<") {
@@ -1134,7 +1131,7 @@ impl Gui {
                     }
                     ui.same_line();
                     if ui.button(">>") {
-                        new_duration_days = Some(task.duration + TaskDuration { days: 7, fraction: 0 });
+                        new_duration_days = Some(task.duration + TaskDuration { days: 5, fraction: 0 });
                     }
                     if let Some(new_duration_days) = new_duration_days {
                         self.project.invoke_command(Command::UpdateTask {
@@ -1199,7 +1196,7 @@ impl Gui {
                     let mut new_duration_days = None;
                     if ui.button("<<") {
                         new_duration_days = Some(TaskDuration::zero()
-                            .max(task.duration - TaskDuration { days: 7, fraction: 0 }));
+                            .max(task.duration - TaskDuration { days: 5, fraction: 0 }));
                     }
                     ui.same_line();
                     if ui.button("<") {
@@ -1212,7 +1209,7 @@ impl Gui {
                     }
                     ui.same_line();
                     if ui.button(">>") {
-                        new_duration_days = Some(task.duration + TaskDuration { days: 7, fraction: 0 });
+                        new_duration_days = Some(task.duration + TaskDuration { days: 5, fraction: 0 });
                     }
                     if new_duration_days.is_some() {
                         println!("New duration days: {:?}", new_duration_days);
@@ -1229,24 +1226,41 @@ impl Gui {
                         });
                     }
                     if ui.button("Crop") {
-                        let task_alloc_for_day = self.project.flow_state().cache().task_alloc_rendering.get(task_id)
-                            .and_then(|r| r.get(resource_id))
-                            .and_then(|r| r.get(day))
-                            .cloned();
-                        if let Some(task_alloc_for_day) = task_alloc_for_day {
-                            let current_duration_days = task.duration.days as f32 + (task.duration.fraction as f32 / 100.0);
-                            let days_to_subtract = task_alloc_for_day as f32 / 100.0;
-                            let new_duration_days = (current_duration_days - days_to_subtract).max(0.0);
-
+                        if let Some(task_alloc_for_day) = self.project.flow_state().cache().task_alloc_rendering.get(task_id)
+                                .and_then(|r| r.get(resource_id))
+                                .and_then(|r| r.get(day)).cloned() {
+                            let duration = TaskDuration {
+                                days: task.duration.days,
+                                fraction: task.duration.fraction,
+                            } - (TaskDuration {
+                                days: 0,
+                                fraction: task_alloc_for_day,
+                            });
                             self.project.invoke_command(Command::UpdateTask {
                                 timestamp: Utc::now(),
                                 id: *task_id,
                                 ticket: task.ticket.clone(),
                                 title: task.title.clone(),
-                                duration: TaskDuration {
-                                    days: new_duration_days as u64,
-                                    fraction: ((new_duration_days.fract() * 100.0) as u8).min(99),
-                                },
+                                duration,
+                            }).unwrap_or_else(|e| {
+                                eprintln!("Failed to crop task: {e}");
+                            });
+                        }
+                    }
+                    if ui.button("Round up") {
+                        if let Some(task_alloc_for_day) = self.project.flow_state().cache().task_alloc_rendering.get(task_id)
+                                .and_then(|r| r.get(resource_id))
+                                .and_then(|r| r.get(day)).cloned() {
+                            let duration = task.duration + (TaskDuration {
+                                days: 0,
+                                fraction: 100 - task_alloc_for_day,
+                            });
+                            self.project.invoke_command(Command::UpdateTask {
+                                timestamp: Utc::now(),
+                                id: *task_id,
+                                ticket: task.ticket.clone(),
+                                title: task.title.clone(),
+                                duration,
                             }).unwrap_or_else(|e| {
                                 eprintln!("Failed to crop task: {e}");
                             });
