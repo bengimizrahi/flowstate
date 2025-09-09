@@ -1157,6 +1157,7 @@ impl Gui {
                         .begin() {
                     ui.slider_config("##fraction", 0, 100)
                         .build(&mut self.worklog_fraction);
+                    ui.same_line();
                     if ui.button("Ok") {
                         ui.close_current_popup();
                         self.project.invoke_command(Command::SetWorklog {
@@ -1165,6 +1166,102 @@ impl Gui {
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: self.worklog_fraction,
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                    if ui.button("10%") {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::SetWorklog {
+                            timestamp: Utc::now(),
+                            task_id: *task_id,
+                            date: *day,
+                            resource_name: resource.name.clone(),
+                            fraction: 10,
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                    ui.same_line();
+                    if ui.button("25%") {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::SetWorklog {
+                            timestamp: Utc::now(),
+                            task_id: *task_id,
+                            date: *day,
+                            resource_name: resource.name.clone(),
+                            fraction: 25,
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                    ui.same_line();
+                    if ui.button("50%") {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::SetWorklog {
+                            timestamp: Utc::now(),
+                            task_id: *task_id,
+                            date: *day,
+                            resource_name: resource.name.clone(),
+                            fraction: 50,
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                    ui.same_line();
+                    if ui.button("75%") {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::SetWorklog {
+                            timestamp: Utc::now(),
+                            task_id: *task_id,
+                            date: *day,
+                            resource_name: resource.name.clone(),
+                            fraction: 75,
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }                    
+                    ui.same_line();
+                    if ui.button("100%") {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::SetWorklog {
+                            timestamp: Utc::now(),
+                            task_id: *task_id,
+                            date: *day,
+                            resource_name: resource.name.clone(),
+                            fraction: 100,
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                    if ui.button("Use all available") {
+                        ui.close_current_popup();
+                        let absence_fraction = self.project.flow_state().cache().resource_absence_rendering.get(resource_id)
+                            .and_then(|r| r.get(day))
+                            .cloned().unwrap_or(0);
+                        let total_worklogs_for_resource_for_day = {
+                            let mut total = 0;
+                            for task_allocs in self.project.flow_state().worklogs.values() {
+                                if let Some(resource_worklogs) = task_allocs.get(resource_id) {
+                                    if let Some(worklog) = resource_worklogs.get(day) {
+                                        total += worklog.fraction as u32;
+                                    }
+                                }
+                            }
+                            total
+                        };
+                        let remaining_fraction = 100 - absence_fraction as u32 - total_worklogs_for_resource_for_day;
+                        let current_worklog_fraction = self.project.flow_state().worklogs.get(task_id)
+                            .and_then(|task_allocs| task_allocs.get(resource_id))
+                            .and_then(|resource_worklogs| resource_worklogs.get(day))
+                            .map(|w| w.fraction)
+                            .unwrap_or(0);
+                        self.project.invoke_command(Command::SetWorklog {
+                            timestamp: Utc::now(),
+                            task_id: *task_id,
+                            date: *day,
+                            resource_name: resource.name.clone(),
+                            fraction: current_worklog_fraction + remaining_fraction as u8,
                         }).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
