@@ -221,6 +221,11 @@ impl Gui {
                         }
                         if can_create_milestone {
                             ui.close_current_popup();
+                            self.project.invoke_command(Command::AddMilestone {
+                                timestamp: Utc::now(),
+                                title: self.milestone_input_text_buffer.clone(),
+                                date: NaiveDate::parse_from_str(&self.milestone_date_input_text_buffer, "%Y-%m-%d").unwrap(),
+                            }).unwrap();
                             self.milestone_input_text_buffer.clear();
                         }
                     }
@@ -391,6 +396,8 @@ impl Gui {
             if ui.table_next_column() {
                 let bg_color = ui.style_color(StyleColor::TableHeaderBg);
                 ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
+                let day = self.project.flow_state().cache().day(i - 1);
+                self.draw_milestone(ui, &day);
             }
         }
 
@@ -487,6 +494,8 @@ impl Gui {
             if ui.table_next_column() {
                 let bg_color = ui.style_color(StyleColor::TableHeaderBg);
                 ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
+                let day = self.project.flow_state().cache().day(i - 1);
+                self.draw_milestone(ui, &day);
             }
         }
 
@@ -708,7 +717,39 @@ impl Gui {
     }
 
     fn draw_milestone(&mut self, ui: &Ui, day: &NaiveDate) {
+        let today = chrono::Local::now().date_naive();
+        if let Some(milestones) = self.project.flow_state().cache().date_to_milestones.get(day) {
+            let cell_height = unsafe { igGetTextLineHeight() };
+            let cell_padding = unsafe { ui.style().cell_padding };
+            let effective_cell_height = cell_height + (cell_padding[1]);
+            let effective_cell_width = ui.current_column_width();
 
+            let cursor_pos = unsafe {
+                let mut pos = ImVec2 { x: 0.0, y: 0.0 };
+                igGetCursorScreenPos(&mut pos);
+                pos.y -= cell_padding[1] / 2.0;
+                pos
+            };
+
+            let draw_list = ui.get_window_draw_list();
+            
+            // Create gradient from transparent red to opaque red on the right edge
+            let gradient_start = [cursor_pos.x + (0.9 * effective_cell_width), cursor_pos.y];
+            let gradient_end = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height];
+            
+            let transparent_red = [1.0, 0.0, 0.0, 0.0];
+            let opaque_red = [1.0, 0.0, 0.0, 0.7];
+            
+            // Draw gradient rectangle for milestone indicator
+            draw_list.add_rect_filled_multicolor(
+                gradient_start,
+                gradient_end,
+                transparent_red,
+                opaque_red,
+                opaque_red,
+                transparent_red,
+            );
+        }
     }
 
     fn draw_gantt_chart_resources_team_popup(&mut self, ui: &Ui, team_id: &TeamId, team: &Team) {
