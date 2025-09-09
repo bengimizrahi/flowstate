@@ -1293,7 +1293,7 @@ impl std::ops::AddAssign<TaskDuration> for AllocCursor {
 pub struct FlowStateCache {
     start_date: NaiveDate,
     end_date: NaiveDate,
-    date_to_milestones: BTreeMap<NaiveDate, Vec<Milestone>>,
+    pub date_to_milestones: BTreeMap<NaiveDate, Vec<Milestone>>,
     pub unassigned_tasks: Vec<TaskId>,
     pub unassigned_task_alloc_rendering: HashMap<TaskId, HashMap<NaiveDate, Fraction>>,
     pub task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>>,
