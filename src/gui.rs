@@ -1,4 +1,6 @@
 
+use core::alloc;
+
 use crate::app::*;
 use crate::support;
 use imgui::sys::igGetCursorScreenPos;
@@ -1172,7 +1174,7 @@ impl Gui {
                     }
                 }
             }
-                        if let Some(_update_duration_menu) = ui.begin_menu("Update Duration") {
+            if let Some(_update_duration_menu) = ui.begin_menu("Update Duration") {
                 if let Some(_child_window) = ui.child_window("##update_duration_menu")
                         .size(UPDATE_TASK_CHILD_WINDOW_SIZE)
                         .begin() {
@@ -1225,6 +1227,30 @@ impl Gui {
                         }).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
+                    }
+                    if ui.button("Crop") {
+                        let task_alloc_for_day = self.project.flow_state().cache().task_alloc_rendering.get(task_id)
+                            .and_then(|r| r.get(resource_id))
+                            .and_then(|r| r.get(day))
+                            .cloned();
+                        if let Some(task_alloc_for_day) = task_alloc_for_day {
+                            let current_duration_days = task.duration.days as f32 + (task.duration.fraction as f32 / 100.0);
+                            let days_to_subtract = task_alloc_for_day as f32 / 100.0;
+                            let new_duration_days = (current_duration_days - days_to_subtract).max(0.0);
+
+                            self.project.invoke_command(Command::UpdateTask {
+                                timestamp: Utc::now(),
+                                id: *task_id,
+                                ticket: task.ticket.clone(),
+                                title: task.title.clone(),
+                                duration: TaskDuration {
+                                    days: new_duration_days as u64,
+                                    fraction: ((new_duration_days.fract() * 100.0) as u8).min(99),
+                                },
+                            }).unwrap_or_else(|e| {
+                                eprintln!("Failed to crop task: {e}");
+                            });
+                        }
                     }
                 }
             }
