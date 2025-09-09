@@ -386,7 +386,7 @@ pub struct Worklog {
     task_id: TaskId,
     date: NaiveDate,
     resource_id: ResourceId,
-    fraction: Fraction,
+    pub fraction: Fraction,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
