@@ -34,14 +34,13 @@ pub struct Gui {
 }
 
 struct DrawingAids {
-    previous_alloc: Option<Fraction>,
     previous_rect: Option<(ImVec2, ImVec2)>,
     row_counter: usize,
 }
 
 impl DrawingAids {
     pub fn new() -> Self {
-        DrawingAids { previous_alloc: None, previous_rect: None, row_counter: 0 }
+        DrawingAids { previous_rect: None, row_counter: 0 }
     }
 }
 
@@ -459,6 +458,7 @@ impl Gui {
                 let _day_token_id = ui.push_id_usize(i);
                 let day = self.project.flow_state().cache().day(i - 1);
                 self.draw_cell_background(ui, &day);
+                self.draw_worklog(ui, &day, resource_id, resource, task_id, &task);
                 self.draw_alloc(ui, &day, Some(resource_id), task_id, &task);
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
@@ -586,10 +586,9 @@ impl Gui {
         let effective_cell_height = cell_height + (cell_padding[1]);
         let effective_cell_width = ui.current_column_width();
 
-        let prev_alloc_height: Option<f32> = self.drawing_aids.previous_alloc.map(|prev_alloc| {
-            (effective_cell_height * (prev_alloc as f32 / 100.0)).max(1.0)
-        });
-        
+        let worklog = self.project.flow_state().worklogs.get(task_id)
+            .and_then(|r| r.get(resource_id.unwrap_or(&0)))
+            .and_then(|r| r.get(day));
         let alloc = if let Some(resource_id) = resource_id {
             self.project.flow_state().cache().task_alloc_rendering.get(task_id)
                 .and_then(|r| r.get(resource_id))
@@ -606,11 +605,16 @@ impl Gui {
                 pos
             };
 
-            let alloc_height = (effective_cell_height * (*alloc as f32 / 100.0)).max(1.0);
+            let alloc_height = effective_cell_height * (*alloc as f32 / 100.0);
+            let worklog_height = if let Some(worklog) = worklog {
+                effective_cell_height * (worklog.fraction as f32) / 100.0
+            } else {
+                0.0
+            };
 
             let draw_list = ui.get_window_draw_list();
-            let top_left = [cursor_pos.x, cursor_pos.y + effective_cell_height - alloc_height];
-            let bottom_right = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height];
+            let top_left = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height - alloc_height];
+            let bottom_right = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height - worklog_height];
             let alloc_color = [1.0, 1.0, 1.0, 1.0];
             let border_color = [0.0, 0.0, 0.0, 1.0];
 
@@ -618,25 +622,24 @@ impl Gui {
                 .filled(true)
                 .build();
 
-            if let Some(prev_alloc) = self.drawing_aids.previous_alloc {
-                let prev_alloc_height = (effective_cell_height * (prev_alloc as f32 / 100.0)).max(1.0);
-                let left_top = [cursor_pos.x, cursor_pos.y + effective_cell_height - alloc_height as f32];
-                let left_bottom = [cursor_pos.x, cursor_pos.y + effective_cell_height - prev_alloc_height as f32];
+            if let Some(prev_rect) = self.drawing_aids.previous_rect {
+                let left_top = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height - alloc_height];
+                let left_bottom = [cursor_pos.x, prev_rect.0.y];
                 draw_list.add_line(left_top, left_bottom, border_color)
                     .thickness(1.0)
                     .build();
             } else {
-                let left_top = [cursor_pos.x, cursor_pos.y + effective_cell_height - alloc_height];
-                let left_bottom = [cursor_pos.x, cursor_pos.y + effective_cell_height];
+                let left_top = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height - alloc_height];
+                let left_bottom = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height];
                 draw_list.add_line(left_top, left_bottom, border_color)
                     .thickness(1.0)
                     .build();
             }
             
-            let top_left_border = [cursor_pos.x, cursor_pos.y + effective_cell_height - alloc_height];
-            let top_right_border = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height - alloc_height];
-            let bottom_left_border = [cursor_pos.x, cursor_pos.y + effective_cell_height];
-            let bottom_right_border = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height];
+            let top_left_border = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height - alloc_height];
+            let top_right_border = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height  - worklog_height - alloc_height];
+            let bottom_left_border = [cursor_pos.x, cursor_pos.y + effective_cell_height  - worklog_height];
+            let bottom_right_border = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height  - worklog_height];
 
             draw_list.add_line(top_left_border, top_right_border, border_color)
                 .thickness(1.0)
@@ -645,15 +648,13 @@ impl Gui {
                 .thickness(1.0)
                 .build();
             self.drawing_aids = DrawingAids{
-                previous_alloc: Some(*alloc),
                 previous_rect: Some((
                     ImVec2 { x: top_left[0], y: top_left[1] },
                     ImVec2 { x: bottom_right[0], y: bottom_right[1] })),
                 ..self.drawing_aids
             };
         } else {
-            if self.drawing_aids.previous_alloc.is_some() {
-                // draw the right border to black
+            if let Some(prev_rect) = self.drawing_aids.previous_rect {
                 let cursor_pos = unsafe {
                     let mut pos = ImVec2 { x: 0.0, y: 0.0 };
                     igGetCursorScreenPos(&mut pos);
@@ -661,18 +662,49 @@ impl Gui {
                 };
                 let border_color = [0.0, 0.0, 0.0, 1.0];
 
-                let right_top = [self.drawing_aids.previous_rect.unwrap().1.x, cursor_pos.y + effective_cell_height - prev_alloc_height.unwrap()];
-                let right_bottom = [self.drawing_aids.previous_rect.unwrap().1.x, cursor_pos.y + effective_cell_height];
+                let right_top = [cursor_pos.x, prev_rect.0.y];
+                let right_bottom = [cursor_pos.x, cursor_pos.y + effective_cell_height];
 
                 ui.get_window_draw_list().add_line(right_top, right_bottom, border_color)
                     .thickness(1.0)
                     .build();
                 self.drawing_aids = DrawingAids{
-                    previous_alloc: None,
                     previous_rect: None,
                     ..self.drawing_aids
                 };
             }
+        }
+    }
+
+    fn draw_worklog(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, resource: &Resource, task_id: &TaskId, task: &Task) {
+        let cell_height = unsafe { igGetTextLineHeight() };
+        let cell_padding = unsafe { ui.style().cell_padding };
+        let effective_cell_height = cell_height + (cell_padding[1]);
+        let effective_cell_width = ui.current_column_width();
+
+        let worklog = self.project.flow_state().worklogs.get(&task_id)
+            .and_then(|r| r.get(&resource_id))
+            .and_then(|r| r.get(day));
+
+        if let Some(worklog) = worklog {
+            let cursor_pos = unsafe {
+                let mut pos = ImVec2 { x: 0.0, y: 0.0 };
+                igGetCursorScreenPos(&mut pos);
+                pos.y -= cell_padding[1] / 2.0;
+                pos
+            };
+            let worklog_height = effective_cell_height * (worklog.fraction as f32) / 100.0;
+            let worklog_p1 = [
+                cursor_pos.x,
+                cursor_pos.y + effective_cell_height - worklog_height,
+            ];
+            let worklog_p2 = [
+                cursor_pos.x + effective_cell_width,
+                cursor_pos.y + effective_cell_height,
+            ];
+            ui.get_window_draw_list().add_rect(worklog_p1, worklog_p2, [0.32, 0.58, 0.83, 1.0])
+                .filled(true)
+                .build();
         }
     }
 
