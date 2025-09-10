@@ -505,6 +505,7 @@ impl Gui {
         }
         self.draw_gantt_chart_resources_team_resource_task_popup(ui, task_id, &task);
 
+        self.drawing_aids.previous_rect = None;
         for i in 1..=self.project.flow_state().cache().num_days() {
             if ui.table_next_column() {
                 let _day_token_id = ui.push_id_usize(i);
@@ -517,7 +518,6 @@ impl Gui {
                 self.draw_gantt_chart_resources_team_resource_task_content_popup(ui, resource_id, &resource, task_id, &task, &day);
             }
         }
-        self.drawing_aids.previous_rect = None;
 
         if expand_task {
             unsafe {imgui::sys::igTreePop();}
@@ -570,6 +570,7 @@ impl Gui {
         }
         self.draw_gantt_chart_resources_team_unassigned_task_popup(ui, task_id, &task);
 
+        self.drawing_aids.previous_rect = None;
         for i in 1..=self.project.flow_state().cache().num_days() {
             if ui.table_next_column() {
                 let _day_token_id = ui.push_id_usize(i);
