@@ -392,7 +392,7 @@ pub struct Worklog {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Milestone {
     date: NaiveDate,
-    title: String,
+    pub title: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
