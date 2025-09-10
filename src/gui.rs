@@ -356,6 +356,38 @@ impl Gui {
                     let bg_color = ui.style_color(StyleColor::TableHeaderBg);
                     ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
                 }
+                if let Some(milestones) = self.project.flow_state().cache().date_to_milestones.get(&day) {
+                    for milestone in milestones {
+                        let cursor_pos = unsafe {
+                            let mut pos = ImVec2 { x: 0.0, y: 0.0 };
+                            igGetCursorScreenPos(&mut pos);
+                            pos
+                        };
+                        
+                        let draw_list = ui.get_window_draw_list();
+                        unsafe {
+                            imgui::sys::igPushClipRect(
+                                ImVec2 { x: f32::NEG_INFINITY, y: f32::NEG_INFINITY },
+                                ImVec2 { x: f32::INFINITY, y: f32::INFINITY },
+                                false
+                            );
+                        }
+                        
+                        let text_size = ui.calc_text_size(&milestone.title);
+                        let column_width = ui.current_column_width();
+                        let text_pos = [
+                            cursor_pos.x + (column_width - text_size[0]) * 0.5,
+                            cursor_pos.y
+                        ];
+                        
+                        let text_color = ui.style_color(StyleColor::Text);
+                        draw_list.add_text(text_pos, text_color, &milestone.title);
+                        
+                        unsafe {
+                            imgui::sys::igPopClipRect();
+                        }
+                    }
+                }
             }
         }
         ui.table_next_row();
@@ -471,6 +503,8 @@ impl Gui {
                 self.draw_gantt_chart_resources_team_resource_task_content_popup(ui, resource_id, &resource, task_id, &task, &day);
             }
         }
+        self.drawing_aids.previous_rect = None;
+
         if expand_task {
             unsafe {imgui::sys::igTreePop();}
         }
@@ -851,7 +885,7 @@ impl Gui {
                             &self.ticket_input_text_buffer,
                             self.task_duration_days);
                     }
-                    ui.slider_config("##duration_slider", 0.1, 30.0)
+                    ui.slider_config("##duration_slider", 0.0, 30.0)
                         .display_format("%.f days")
                         .build(&mut self.task_duration_days);
                     ui.input_float("##duration_input", &mut self.task_duration_days)
