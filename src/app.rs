@@ -391,7 +391,7 @@ pub struct Worklog {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Milestone {
-    date: NaiveDate,
+    pub date: NaiveDate,
     pub title: String,
 }
 
@@ -1150,7 +1150,7 @@ impl FlowState {
             Command::RemoveMilestone { timestamp, title } => {
                 if let Some(pos) = self.milestones.iter().position(|m| m.title == title) {
                     let milestone = self.milestones.remove(pos);
-                    Ok(Command::RemoveMilestone { timestamp, title: milestone.title })
+                    Ok(Command::AddMilestone { timestamp, title: milestone.title, date: milestone.date })
                 } else {
                     return Err(format!("No milestone found with the title '{}'", title));
                 }

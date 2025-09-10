@@ -163,7 +163,7 @@ impl Gui {
                     });
                 }
             };
-            if let Some(_action_menu) = ui.begin_menu("Insert") {
+            if let Some(_action_menu) = ui.begin_menu("Command") {
                 if let Some(_team_menu) = ui.begin_menu("Team") {
                     if let Some(_child_window) = ui.child_window("##team_menu")
                             .size(CREATE_TEAM_CHILD_WINDOW_SIZE)
@@ -189,44 +189,58 @@ impl Gui {
                         }
                     }
                 }
-                if let Some(_milestone_menu) = ui.begin_menu("Milestone") {
-                    if let Some(_child_window) = ui.child_window("##milestone_menu")
-                            .size(CREATE_MILESTONE_CHILD_WINDOW_SIZE)
-                            .begin() {
-                        let mut can_create_milestone = false;
-                        if ui.input_text("##milestone_title", &mut self.milestone_input_text_buffer)
-                                .enter_returns_true(true)
-                                .hint("Milestone Title")
-                                .build() {
-                            can_create_milestone = {
-                                !self.milestone_input_text_buffer.is_empty() &&
-                                !self.milestone_date_input_text_buffer.is_empty()
-                            };
+                if let Some(_milestones_menu) = ui.begin_menu("Milestones") {
+                    if let Some(_add_milestone_menu) = ui.begin_menu("Add Milestone") {
+                        if let Some(_child_window) = ui.child_window("##milestone_menu")
+                                .size(CREATE_MILESTONE_CHILD_WINDOW_SIZE)
+                                .begin() {
+                            let mut can_create_milestone = false;
+                            if ui.input_text("##milestone_title", &mut self.milestone_input_text_buffer)
+                                    .enter_returns_true(true)
+                                    .hint("Milestone Title")
+                                    .build() {
+                                can_create_milestone = {
+                                    !self.milestone_input_text_buffer.is_empty() &&
+                                    !self.milestone_date_input_text_buffer.is_empty()
+                                };
+                            }
+                            if ui.input_text("##milestone_date", &mut self.milestone_date_input_text_buffer)
+                                    .enter_returns_true(true)
+                                    .hint("Milestone Date (YYYY-MM-DD)")
+                                    .build() {
+                                can_create_milestone = {
+                                    !self.milestone_input_text_buffer.is_empty() &&
+                                    !self.milestone_date_input_text_buffer.is_empty()
+                                };
+                            }
+                            ui.same_line();
+                            if ui.button("Ok") {
+                                can_create_milestone = {
+                                    !self.milestone_input_text_buffer.is_empty() &&
+                                    !self.milestone_date_input_text_buffer.is_empty()
+                                };
+                            }
+                            if can_create_milestone {
+                                ui.close_current_popup();
+                                self.project.invoke_command(Command::AddMilestone {
+                                    timestamp: Utc::now(),
+                                    title: self.milestone_input_text_buffer.clone(),
+                                    date: NaiveDate::parse_from_str(&self.milestone_date_input_text_buffer, "%Y-%m-%d").unwrap(),
+                                }).unwrap();
+                                self.milestone_input_text_buffer.clear();
+                            }
                         }
-                        if ui.input_text("##milestone_date", &mut self.milestone_date_input_text_buffer)
-                                .enter_returns_true(true)
-                                .hint("Milestone Date (YYYY-MM-DD)")
-                                .build() {
-                            can_create_milestone = {
-                                !self.milestone_input_text_buffer.is_empty() &&
-                                !self.milestone_date_input_text_buffer.is_empty()
-                            };
-                        }
-                        ui.same_line();
-                        if ui.button("Ok") {
-                            can_create_milestone = {
-                                !self.milestone_input_text_buffer.is_empty() &&
-                                !self.milestone_date_input_text_buffer.is_empty()
-                            };
-                        }
-                        if can_create_milestone {
-                            ui.close_current_popup();
-                            self.project.invoke_command(Command::AddMilestone {
-                                timestamp: Utc::now(),
-                                title: self.milestone_input_text_buffer.clone(),
-                                date: NaiveDate::parse_from_str(&self.milestone_date_input_text_buffer, "%Y-%m-%d").unwrap(),
-                            }).unwrap();
-                            self.milestone_input_text_buffer.clear();
+                    }
+                    if let Some(_remove_milestone_menu) = ui.begin_menu("Remove Milestone") {
+                        let milestones: Vec<_> = self.project.flow_state().milestones.iter().cloned().collect();
+                        for milestone in milestones {
+                            let milestone_label = format!("{} - {}", milestone.date.format("%Y-%m-%d"), milestone.title);
+                            if ui.menu_item(&milestone_label) {
+                                self.project.invoke_command(Command::RemoveMilestone {
+                                    timestamp: Utc::now(),
+                                    title: milestone.title.clone(),
+                                }).unwrap();
+                            }
                         }
                     }
                 }
