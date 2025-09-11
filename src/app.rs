@@ -351,7 +351,7 @@ pub struct Task {
     pub ticket: String,
     pub title: String,
     pub duration: TaskDuration,
-    label_ids: BTreeSet<LabelId>,
+    pub label_ids: BTreeSet<LabelId>,
     assignee: Option<ResourceId>,
     watchers: BTreeSet<ResourceId>,
 }
@@ -372,7 +372,7 @@ impl Task {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Label {
-    name: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
