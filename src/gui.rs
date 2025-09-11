@@ -17,6 +17,7 @@ const CREATE_TASK_CHILD_WINDOW_SIZE: [f32; 2] = [180.0, 150.0];
 const UPDATE_TASK_CHILD_WINDOW_SIZE: [f32; 2] = CREATE_TASK_CHILD_WINDOW_SIZE;
 const CREATE_MILESTONE_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 70.0];
 const SET_WORKLOG_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 70.0];
+const CREATE_LABEL_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 70.0];
 
 pub struct Gui {
     project: Project,
@@ -31,6 +32,7 @@ pub struct Gui {
     worklog_fraction: u8,
     milestone_input_text_buffer: String,
     milestone_date_input_text_buffer: String,
+    label_input_text_buffer: String,
     logs: Vec<String>,
     drawing_aids: DrawingAids,
 }
@@ -69,6 +71,7 @@ impl Gui {
             worklog_fraction: 0,
             milestone_input_text_buffer: String::new(),
             milestone_date_input_text_buffer: String::new(),
+            label_input_text_buffer: String::new(),
             logs: Vec::new(),
             drawing_aids: DrawingAids::new(),
         }
@@ -1180,7 +1183,66 @@ impl Gui {
             }
             ui.separator();
             if let Some(_update_task_menu) = ui.begin_menu("Labels") {
-
+                if let Some(_add_label_menu) = ui.begin_menu("Add Label") {
+                    let labels: Vec<_> = self.project.flow_state().labels.iter().map(|(id, label)| (*id, label.clone())).collect();
+                    for (label_id, label) in labels {
+                        if !task.label_ids.contains(&label_id) {
+                            if ui.menu_item(&label.name) {
+                                self.project.invoke_command(Command::AddLabelToTask {
+                                    timestamp: Utc::now(),
+                                    task_id: *task_id,
+                                    label_name: label.name.clone(),
+                                }).unwrap_or_else(|e| {
+                                    gui_log!(self, "Failed to add label to task: {e}");
+                                });
+                            }
+                        }
+                    }
+                    if let Some(_update_task_menu) = ui.begin_menu("New Label") {
+                        if let Some(_child_window) = ui.child_window("##new_label")
+                                .size(CREATE_LABEL_CHILD_WINDOW_SIZE)
+                                .begin() {
+                            ui.input_text("##label_name", &mut self.label_input_text_buffer)
+                                .hint("Enter label name")
+                                .build();
+                            if ui.button("Ok") && !self.label_input_text_buffer.is_empty() {
+                                self.project.invoke_command(Command::CompoundCommand {
+                                    timestamp: Utc::now(),
+                                    commands: vec![
+                                        Command::CreateLabel {
+                                            timestamp: Utc::now(),
+                                            name: self.label_input_text_buffer.clone(),
+                                        },
+                                        Command::AddLabelToTask {
+                                            timestamp: Utc::now(),
+                                            task_id: *task_id,
+                                            label_name: self.label_input_text_buffer.clone(),
+                                        }
+                                    ]
+                                }).unwrap_or_else(|e| {
+                                    gui_log!(self, "Failed to create label and add to task: {e}");
+                                });
+                                self.label_input_text_buffer.clear();
+                            }
+                        }
+                    }
+                }
+                if let Some(_remove_label_menu) = ui.begin_menu("Remove Label") {
+                    let labels: Vec<_> = self.project.flow_state().labels.iter().map(|(id, label)| (*id, label.clone())).collect();
+                    for (label_id, label) in labels {
+                        if task.label_ids.contains(&label_id) {
+                            if ui.menu_item(&label.name) {
+                                self.project.invoke_command(Command::RemoveLabelFromTask {
+                                    timestamp: Utc::now(),
+                                    task_id: *task_id,
+                                    label_name: label.name.clone(),
+                                }).unwrap_or_else(|e| {
+                                    gui_log!(self, "Failed to remove label from task: {e}");
+                                });
+                            }
+                        }
+                    }
+                }
             }
             ui.separator();
             if let Some(_update_task_menu) = ui.begin_menu("Update Duration") {
@@ -1609,7 +1671,66 @@ impl Gui {
             }
             ui.separator();
             if let Some(_update_task_menu) = ui.begin_menu("Labels") {
-
+                if let Some(_add_label_menu) = ui.begin_menu("Add Label") {
+                    let labels: Vec<_> = self.project.flow_state().labels.iter().map(|(id, label)| (*id, label.clone())).collect();
+                    for (label_id, label) in labels {
+                        if !task.label_ids.contains(&label_id) {
+                            if ui.menu_item(&label.name) {
+                                self.project.invoke_command(Command::AddLabelToTask {
+                                    timestamp: Utc::now(),
+                                    task_id: *task_id,
+                                    label_name: label.name.clone(),
+                                }).unwrap_or_else(|e| {
+                                    gui_log!(self, "Failed to add label to task: {e}");
+                                });
+                            }
+                        }
+                    }
+                    if let Some(_update_task_menu) = ui.begin_menu("New Label") {
+                        if let Some(_child_window) = ui.child_window("##new_label")
+                                .size(CREATE_LABEL_CHILD_WINDOW_SIZE)
+                                .begin() {
+                            ui.input_text("##label_name", &mut self.label_input_text_buffer)
+                                .hint("Enter label name")
+                                .build();
+                            if ui.button("Ok") && !self.label_input_text_buffer.is_empty() {
+                                self.project.invoke_command(Command::CompoundCommand {
+                                    timestamp: Utc::now(),
+                                    commands: vec![
+                                        Command::CreateLabel {
+                                            timestamp: Utc::now(),
+                                            name: self.label_input_text_buffer.clone(),
+                                        },
+                                        Command::AddLabelToTask {
+                                            timestamp: Utc::now(),
+                                            task_id: *task_id,
+                                            label_name: self.label_input_text_buffer.clone(),
+                                        }
+                                    ]
+                                }).unwrap_or_else(|e| {
+                                    gui_log!(self, "Failed to create label and add to task: {e}");
+                                });
+                                self.label_input_text_buffer.clear();
+                            }
+                        }
+                    }
+                }
+                if let Some(_remove_label_menu) = ui.begin_menu("Remove Label") {
+                    let labels: Vec<_> = self.project.flow_state().labels.iter().map(|(id, label)| (*id, label.clone())).collect();
+                    for (label_id, label) in labels {
+                        if task.label_ids.contains(&label_id) {
+                            if ui.menu_item(&label.name) {
+                                self.project.invoke_command(Command::RemoveLabelFromTask {
+                                    timestamp: Utc::now(),
+                                    task_id: *task_id,
+                                    label_name: label.name.clone(),
+                                }).unwrap_or_else(|e| {
+                                    gui_log!(self, "Failed to remove label from task: {e}");
+                                });
+                            }
+                        }
+                    }
+                }
             }
             ui.separator();
             if let Some(_update_duration_menu) = ui.begin_menu("Update Duration") {
