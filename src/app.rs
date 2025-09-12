@@ -211,7 +211,7 @@ pub enum Command {
         task_id: TaskId,
         label_name: LabelName,
     },
-    CreateFilter{
+    CreateModifyFilter{
         timestamp: DateTime<Utc>,
         name: FilterName,
         labels: Vec<LabelName>,
@@ -377,7 +377,7 @@ pub struct Label {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Filter {
-    name: String,
+    pub name: String,
     labels: BTreeSet<LabelId>,
 }
 
@@ -999,10 +999,10 @@ impl FlowState {
                     return Err(format!("Task with id {} not found", task_id));
                 }
             }
-            Command::CreateFilter { timestamp, name, labels } => {
-                if self.filters.values().any(|filter| filter.name == name) {
-                    return Err(format!("A filter with the name '{}' already exists", name));
-                }
+            Command::CreateModifyFilter { timestamp, name, labels } => {
+                let existing_filter_id = self.filters.iter()
+                    .find(|(_, filter)| filter.name == name)
+                    .map(|(id, _)| *id);
 
                 let mut label_ids = BTreeSet::new();
                 for label_name in &labels {
@@ -1012,10 +1012,19 @@ impl FlowState {
                         return Err(format!("Label '{}' not found", label_name));
                     }
                 }
-                let filter_id = self.next_filter_id();
-                self.filters.insert(filter_id, Filter { name: name.clone(), labels: label_ids });
 
-                Ok(Command::DeleteFilter { timestamp, name })
+                if let Some(filter_id) = existing_filter_id {
+                    let old_labels = self.filters[&filter_id].labels.clone();
+                    let old_label_names = old_labels.into_iter()
+                        .filter_map(|id| self.labels.get(&id).map(|label| label.name.clone()))
+                        .collect();
+                    self.filters.insert(filter_id, Filter { name: name.clone(), labels: label_ids });
+                    Ok(Command::CreateModifyFilter { timestamp, name, labels: old_label_names })
+                } else {
+                    let filter_id = self.next_filter_id();
+                    self.filters.insert(filter_id, Filter { name: name.clone(), labels: label_ids });
+                    Ok(Command::DeleteFilter { timestamp, name })
+                }
             }
             Command::RenameFilter { timestamp, old_name, new_name } => {
                 let filter_id = self.filters.iter()
@@ -1044,7 +1053,7 @@ impl FlowState {
                         .filter_map(|id| self.labels.get(&id).map(|label| label.name.clone()))
                         .collect();
                     self.filters.remove(&filter_id);
-                    Ok(Command::CreateFilter { timestamp, name, labels })
+                    Ok(Command::CreateModifyFilter { timestamp, name, labels })
                 } else {
                     return Err(format!("No filter found with the name '{}'", name));
                 }

@@ -22,6 +22,9 @@ const CREATE_LABEL_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 70.0];
 pub struct Gui {
     project: Project,
 
+    filtered_labels: Vec<LabelId>,
+    selected_filter: Option<FilterId>,
+
     bold_font: std::rc::Rc<std::cell::RefCell<Option<FontId>>>,
     team_input_text_buffer: String,
     resource_input_text_buffer: String,
@@ -33,6 +36,7 @@ pub struct Gui {
     milestone_input_text_buffer: String,
     milestone_date_input_text_buffer: String,
     label_input_text_buffer: String,
+    filter_input_text_buffer: String,
     logs: Vec<String>,
     drawing_aids: DrawingAids,
 }
@@ -61,6 +65,10 @@ impl Gui {
                 eprintln!("Failed to load project: {e}");
                 Project::new()
             }),
+
+            filtered_labels: Vec::new(),
+            selected_filter: None,
+
             bold_font: std::rc::Rc::new(std::cell::RefCell::new(None)),
             team_input_text_buffer: String::new(),
             resource_input_text_buffer: String::new(),
@@ -72,6 +80,7 @@ impl Gui {
             milestone_input_text_buffer: String::new(),
             milestone_date_input_text_buffer: String::new(),
             label_input_text_buffer: String::new(),
+            filter_input_text_buffer: String::new(),
             logs: Vec::new(),
             drawing_aids: DrawingAids::new(),
         }
@@ -248,8 +257,76 @@ impl Gui {
                     }
                 }
             };
-            if let Some(_filter_menu) = ui.begin_menu("Filter") {
-            };
+            if let Some(_label_menu) = ui.begin_menu("Label") {
+                let labels: Vec<_> = self.project.flow_state().labels.iter().map(|(id, label)| (*id, label.clone())).collect();
+                for (label_id, label) in labels {
+                    let is_selected = self.filtered_labels.contains(&label_id);
+                    if ui.menu_item_config(&label.name).selected(is_selected).build() {
+                        if is_selected {
+                            self.filtered_labels.retain(|&id| id != label_id);
+                        } else {
+                            self.filtered_labels.push(label_id);
+                        }
+                    }
+                }
+                if ui.menu_item("Clear all") {
+                    self.filtered_labels.clear();
+                }
+            }
+            if let Some(_filters_menu) = ui.begin_menu("Filter") {
+                let filters: Vec<_> = self.project.flow_state().filters.iter().map(|(id, filter)| (*id, filter.clone())).collect();
+                for (filter_id, filter) in &filters {
+                    let is_selected = self.selected_filter == Some(*filter_id);
+                    if ui.menu_item_config(&filter.name.clone()).selected(is_selected).build() {
+                        if is_selected {
+                            self.selected_filter = None;
+                        } else {
+                            self.selected_filter = Some(*filter_id);
+                        }
+                    }
+                }
+                ui.separator();
+                if let Some(_save_filter_menu) = ui.begin_menu("Save") {
+                    for (filter_id, filter) in &filters {
+                        if ui.menu_item(&filter.name) {
+                            let label_names: Vec<String> = self.filtered_labels.iter()
+                                .filter_map(|&label_id| self.project.flow_state().labels.get(&label_id))
+                                .map(|label| label.name.clone())
+                                .collect();
+                            self.project.invoke_command(Command::CreateModifyFilter {
+                                timestamp: Utc::now(),
+                                name: filter.name.clone(),
+                                labels: label_names,
+                            }).unwrap();
+                        }
+                    }
+                }
+                if let Some(_save_as_filter_menu) = ui.begin_menu("Save as...") {
+                    ui.input_text("##filter_name", &mut self.filter_input_text_buffer)
+                        .enter_returns_true(true)
+                        .hint("Enter filter name")
+                        .build();
+                    if ui.button("Ok") {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::CreateModifyFilter {
+                            timestamp: Utc::now(),
+                            name: self.filter_input_text_buffer.clone(),
+                            labels: Vec::new(),
+                        }).unwrap();
+                        self.filter_input_text_buffer.clear();
+                    }
+                }
+                if let Some(_delete_filter_menu) = ui.begin_menu("Delete") {
+                    for (filter_id, filter) in &filters {
+                        if ui.menu_item(&filter.name) {
+                            self.project.invoke_command(Command::DeleteFilter {
+                                timestamp: Utc::now(),
+                                name: filter.name.clone(),
+                            }).unwrap();
+                        }
+                    }
+                }
+            }
             if let Some(_help_menu) = ui.begin_menu("Help") {
                 if ui.menu_item("About") {
 
@@ -487,7 +564,10 @@ impl Gui {
         }
         if expand_resource {
             for task_id in resource.assigned_tasks.iter() {
-                self.draw_gantt_chart_resources_team_resource_task(ui, resource_id, &resource, task_id);
+                let task = self.project.flow_state().tasks.get(task_id).unwrap().clone();
+                if self.filtered_labels.is_empty() || self.filtered_labels.iter().all(|label_id| task.label_ids.contains(label_id)) {
+                    self.draw_gantt_chart_resources_team_resource_task(ui, resource_id, &resource, task_id);
+                }
             }
             unsafe {imgui::sys::igTreePop();}
         }
@@ -552,8 +632,12 @@ impl Gui {
 
         if expand_unassigned {
             for task_id in self.project.flow_state().cache().unassigned_tasks.clone().iter() {
-                self.draw_gantt_chart_resources_team_unassigned_task(ui, task_id);
+                let task = self.project.flow_state().tasks.get(task_id).unwrap().clone();
+                if self.filtered_labels.is_empty() || self.filtered_labels.iter().all(|label_id| task.label_ids.contains(label_id)) {
+                    self.draw_gantt_chart_resources_team_unassigned_task(ui, task_id);
+                }
             }
+
             unsafe {imgui::sys::igTreePop();}
         }
     }
