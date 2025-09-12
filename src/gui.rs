@@ -26,6 +26,7 @@ pub struct Gui {
     selected_filter: Option<FilterId>,
 
     bold_font: std::rc::Rc<std::cell::RefCell<Option<FontId>>>,
+    find_input_buffer: String,
     team_input_text_buffer: String,
     resource_input_text_buffer: String,
     ticket_input_text_buffer: String,
@@ -70,6 +71,7 @@ impl Gui {
             selected_filter: None,
 
             bold_font: std::rc::Rc::new(std::cell::RefCell::new(None)),
+            find_input_buffer: String::new(),
             team_input_text_buffer: String::new(),
             resource_input_text_buffer: String::new(),
             ticket_input_text_buffer: String::new(),
@@ -350,7 +352,12 @@ impl Gui {
     }
 
     fn draw_ribbon(&mut self, ui: &Ui) {
-
+        ui.align_text_to_frame_padding();
+        ui.text("Find");
+        ui.same_line();
+        ui.set_next_item_width(200.0);
+        ui.input_text("##find", &mut self.find_input_buffer)
+            .build();
     }
 
     fn draw_tab_bar(&mut self, ui: &Ui) {
@@ -579,7 +586,15 @@ impl Gui {
         if expand_resource {
             for task_id in resource.assigned_tasks.iter() {
                 let task = self.project.flow_state().tasks.get(task_id).unwrap().clone();
-                if self.filtered_labels.is_empty() || self.filtered_labels.iter().all(|label_id| task.label_ids.contains(label_id)) {
+                let should_show = (
+                    self.filtered_labels.is_empty()
+                        || self.filtered_labels.iter().all(|label_id| task.label_ids.contains(label_id))
+                ) && (
+                    self.find_input_buffer.is_empty()
+                        || task.title.contains(&self.find_input_buffer)
+                        || task.ticket.contains(&self.find_input_buffer)
+                );
+                if should_show {
                     self.draw_gantt_chart_resources_team_resource_task(ui, resource_id, &resource, task_id);
                 }
             }
