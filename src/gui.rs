@@ -302,6 +302,7 @@ impl Gui {
                                 name: filter.name.clone(),
                                 labels: label_names,
                             }).unwrap();
+                            self.selected_filter = Some(*filter_id);
                         }
                     }
                 }
