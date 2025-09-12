@@ -378,7 +378,7 @@ pub struct Label {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Filter {
     pub name: String,
-    labels: BTreeSet<LabelId>,
+    pub labels: BTreeSet<LabelId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
