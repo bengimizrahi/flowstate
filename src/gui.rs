@@ -267,10 +267,12 @@ impl Gui {
                         } else {
                             self.filtered_labels.push(label_id);
                         }
+                        self.selected_filter = None;
                     }
                 }
                 if ui.menu_item("Clear all") {
                     self.filtered_labels.clear();
+                    self.selected_filter = None;
                 }
             }
             if let Some(_filters_menu) = ui.begin_menu("Filter") {
@@ -280,8 +282,10 @@ impl Gui {
                     if ui.menu_item_config(&filter.name.clone()).selected(is_selected).build() {
                         if is_selected {
                             self.selected_filter = None;
+                            self.filtered_labels.clear();
                         } else {
                             self.selected_filter = Some(*filter_id);
+                            self.filtered_labels = filter.labels.iter().cloned().collect();
                         }
                     }
                 }
@@ -313,6 +317,10 @@ impl Gui {
                             name: self.filter_input_text_buffer.clone(),
                             labels: Vec::new(),
                         }).unwrap();
+                        let filter_id = self.project.flow_state().filters.iter()
+                            .find(|(_, f)| f.name == self.filter_input_text_buffer)
+                            .map(|(id, _)| *id);
+                        self.selected_filter = filter_id;
                         self.filter_input_text_buffer.clear();
                     }
                 }
