@@ -326,11 +326,16 @@ impl Gui {
                 }
                 if let Some(_delete_filter_menu) = ui.begin_menu("Delete") {
                     for (filter_id, filter) in &filters {
+                        let is_selected = self.selected_filter == Some(*filter_id);
                         if ui.menu_item(&filter.name) {
                             self.project.invoke_command(Command::DeleteFilter {
                                 timestamp: Utc::now(),
                                 name: filter.name.clone(),
                             }).unwrap();
+                            if is_selected {
+                                self.selected_filter = None;
+                                self.filtered_labels.clear();
+                            }
                         }
                     }
                 }
