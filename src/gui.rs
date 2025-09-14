@@ -303,6 +303,7 @@ impl Gui {
                                 timestamp: Utc::now(),
                                 name: filter.name.clone(),
                                 labels: label_names,
+                                is_favorite: filter.is_favorite,
                             }).unwrap();
                             self.selected_filter = Some(*filter_id);
                         }
@@ -318,7 +319,11 @@ impl Gui {
                         self.project.invoke_command(Command::CreateModifyFilter {
                             timestamp: Utc::now(),
                             name: self.filter_input_text_buffer.clone(),
-                            labels: Vec::new(),
+                            labels: self.filtered_labels.iter()
+                                .filter_map(|&label_id| self.project.flow_state().labels.get(&label_id))
+                                .map(|label| label.name.clone())
+                                .collect(),
+                            is_favorite: false,
                         }).unwrap();
                         let filter_id = self.project.flow_state().filters.iter()
                             .find(|(_, f)| f.name == self.filter_input_text_buffer)
@@ -342,6 +347,22 @@ impl Gui {
                         }
                     }
                 }
+                if let Some(_favorite_filter_menu) = ui.begin_menu("Favorites") {
+                    for (filter_id, filter) in &filters {
+                        let is_favorite = filter.is_favorite;
+                        if ui.menu_item_config(&filter.name).selected(is_favorite).build() {
+                            self.project.invoke_command(Command::CreateModifyFilter {
+                                timestamp: Utc::now(),
+                                name: filter.name.clone(),
+                                labels: filter.labels.iter()
+                                    .filter_map(|&label_id| self.project.flow_state().labels.get(&label_id))
+                                    .map(|label| label.name.clone())
+                                    .collect(),
+                                is_favorite: !is_favorite,
+                            }).unwrap();
+                        }
+                    }
+                }
             }
             if let Some(_help_menu) = ui.begin_menu("Help") {
                 if ui.menu_item("About") {
@@ -356,8 +377,16 @@ impl Gui {
         ui.text("Find");
         ui.same_line();
         ui.set_next_item_width(200.0);
-        ui.input_text("##find", &mut self.find_input_buffer)
-            .build();
+        ui.input_text("##find", &mut self.find_input_buffer).build();
+        for (filter_id, filter) in &self.project.flow_state().filters {
+            if filter.is_favorite {
+                ui.same_line();
+                if ui.radio_button(&filter.name, &mut self.selected_filter, Some(*filter_id)) {
+                    self.selected_filter = Some(*filter_id);
+                    self.filtered_labels = filter.labels.iter().cloned().collect();
+                }
+            }
+        }
     }
 
     fn draw_tab_bar(&mut self, ui: &Ui) {

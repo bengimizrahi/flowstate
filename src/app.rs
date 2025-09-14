@@ -215,6 +215,7 @@ pub enum Command {
         timestamp: DateTime<Utc>,
         name: FilterName,
         labels: Vec<LabelName>,
+        is_favorite: bool,
     },
     RenameFilter{
         timestamp: DateTime<Utc>,
@@ -379,6 +380,7 @@ pub struct Label {
 pub struct Filter {
     pub name: String,
     pub labels: BTreeSet<LabelId>,
+    pub is_favorite: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -442,6 +444,7 @@ impl Project {
     }
 
     pub fn invoke_command(&mut self, command: Command) -> Result<(), String> {
+        println!("Invoking command: {:?}", command);
         let undo_command = self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command.clone())?;
         self.append_to_command_history(CommandRecord {
             undo_command,
@@ -999,7 +1002,7 @@ impl FlowState {
                     return Err(format!("Task with id {} not found", task_id));
                 }
             }
-            Command::CreateModifyFilter { timestamp, name, labels } => {
+            Command::CreateModifyFilter { timestamp, name, labels, is_favorite } => {
                 let existing_filter_id = self.filters.iter()
                     .find(|(_, filter)| filter.name == name)
                     .map(|(id, _)| *id);
@@ -1018,11 +1021,12 @@ impl FlowState {
                     let old_label_names = old_labels.into_iter()
                         .filter_map(|id| self.labels.get(&id).map(|label| label.name.clone()))
                         .collect();
-                    self.filters.insert(filter_id, Filter { name: name.clone(), labels: label_ids });
-                    Ok(Command::CreateModifyFilter { timestamp, name, labels: old_label_names })
+                    let old_is_favorite = self.filters[&filter_id].is_favorite;
+                    self.filters.insert(filter_id, Filter { name: name.clone(), labels: label_ids, is_favorite });
+                    Ok(Command::CreateModifyFilter { timestamp, name, labels: old_label_names, is_favorite: old_is_favorite })
                 } else {
                     let filter_id = self.next_filter_id();
-                    self.filters.insert(filter_id, Filter { name: name.clone(), labels: label_ids });
+                    self.filters.insert(filter_id, Filter { name: name.clone(), labels: label_ids, is_favorite: false });
                     Ok(Command::DeleteFilter { timestamp, name })
                 }
             }
@@ -1048,12 +1052,13 @@ impl FlowState {
                     .map(|(id, _)| *id);
                 if let Some(filter_id) = filter_id {
                     /* labels of the filter */
-                    let label_ids = self.filters[&filter_id].labels.clone();
+                    let filter = self.filters.get(&filter_id).cloned().unwrap();
+                    let label_ids = filter.labels.clone();
                     let labels = label_ids.into_iter()
                         .filter_map(|id| self.labels.get(&id).map(|label| label.name.clone()))
                         .collect();
                     self.filters.remove(&filter_id);
-                    Ok(Command::CreateModifyFilter { timestamp, name, labels })
+                    Ok(Command::CreateModifyFilter { timestamp, name, labels, is_favorite: filter.is_favorite })
                 } else {
                     return Err(format!("No filter found with the name '{}'", name));
                 }
@@ -1448,6 +1453,11 @@ impl FlowStateCache {
             .cloned()
             .min()
             .unwrap_or(start_date));
+        start_date = start_date.min(flow_state.resources.iter()
+            .flat_map(|(_, resource)| resource.absences.iter())
+            .map(|absence| absence.start_date)
+            .min()
+            .unwrap_or(NaiveDate::MAX));
         start_date = start_date.checked_sub_signed(Duration::days(30))
             .unwrap_or(NaiveDate::MIN);
         let mut end_date = flow_state.milestones.iter()
@@ -1460,6 +1470,11 @@ impl FlowStateCache {
             .cloned()
             .max()
             .unwrap_or(end_date));
+        end_date = end_date.max(flow_state.resources.iter()
+            .flat_map(|(_, resource)| resource.absences.iter())
+            .map(|absence| absence.start_date)
+            .max()
+            .unwrap_or(NaiveDate::MIN));
         end_date = end_date.max(most_farther_alloc_date);
         end_date = end_date.checked_add_signed(Duration::days(30))
             .unwrap_or(NaiveDate::MAX);
