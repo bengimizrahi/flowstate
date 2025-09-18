@@ -1291,6 +1291,34 @@ impl Gui {
                 });
                 ui.close_current_popup();
             }
+            if let Some(_watchers_menu) = ui.begin_menu("Watchers") {
+                /* list all the resources as a menu item. If the resource is already a watcher, it should be checked */
+                let mut resources: Vec<_> = self.project.flow_state().resources.values().cloned().collect();
+                resources.sort_by(|a, b| a.name.cmp(&b.name));
+                for resource in resources {
+                    let is_watching = resource.watched_tasks.contains(task_id);
+                    if ui.menu_item_config(resource.name.clone()).selected(is_watching).build() {
+                        if is_watching {
+                            self.project.invoke_command(Command::RemoveWatcher {
+                                timestamp: Utc::now(),
+                                task_id: *task_id,
+                                resource_name: resource.name.clone(),
+                            }).unwrap_or_else(|e| {
+                                gui_log!(self, "Failed to unwatch task: {e}");
+                            });
+                        } else {
+                            self.project.invoke_command(Command::AddWatcher {
+                                timestamp: Utc::now(),
+                                task_id: *task_id,
+                                resource_name: resource.name.clone(),
+                            }).unwrap_or_else(|e| {
+                                gui_log!(self, "Failed to watch task: {e}");
+                            });
+                        }
+                    }
+                }
+            }
+            ui.separator();
             ui.disabled(true, || {
                 ui.menu_item("Delete");
             });
