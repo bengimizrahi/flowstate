@@ -353,7 +353,7 @@ pub struct Task {
     pub title: String,
     pub duration: TaskDuration,
     pub label_ids: BTreeSet<LabelId>,
-    assignee: Option<ResourceId>,
+    pub assignee: Option<ResourceId>,
     watchers: BTreeSet<ResourceId>,
 }
 
