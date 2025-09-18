@@ -627,6 +627,20 @@ impl Gui {
                     self.draw_gantt_chart_resources_team_resource_task(ui, resource_id, &resource, task_id);
                 }
             }
+            for task_id in resource.watched_tasks.iter() {
+                let task = self.project.flow_state().tasks.get(task_id).unwrap().clone();
+                let should_show = (
+                    self.filtered_labels.is_empty()
+                        || self.filtered_labels.iter().all(|label_id| task.label_ids.contains(label_id))
+                ) && (
+                    self.find_input_buffer.is_empty()
+                        || task.title.contains(&self.find_input_buffer)
+                        || task.ticket.contains(&self.find_input_buffer)
+                );
+                if should_show {
+                    self.draw_gantt_chart_resources_team_resource_task_as_watcher(ui, resource_id, &resource, task_id);
+                }
+            }
             unsafe {imgui::sys::igTreePop();}
         }
     }
@@ -654,6 +668,40 @@ impl Gui {
                 self.draw_cell_background(ui, &day);
                 self.draw_worklog(ui, &day, resource_id, resource, task_id, &task);
                 self.draw_alloc(ui, &day, Some(resource_id), task_id, &task);
+                self.draw_milestone(ui, &day);
+                ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
+                self.draw_gantt_chart_resources_team_resource_task_content_popup(ui, resource_id, &resource, task_id, &task, &day);
+            }
+        }
+
+        if expand_task {
+            unsafe {imgui::sys::igTreePop();}
+        }
+    }
+
+    fn draw_gantt_chart_resources_team_resource_task_as_watcher(&mut self, ui: &Ui, resource_id: &ResourceId, resource: &Resource, task_id: &TaskId) {
+        ui.table_next_row();
+        ui.table_next_column();
+        let _task_token_id = ui.push_id_int(*task_id as i32);
+        let task = self.project.flow_state().tasks.get(task_id).unwrap().clone();
+            let task_title_cstr = std::ffi::CString::new(format!("(-.-) {} - {}", task.ticket, task.title)).unwrap();
+        let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_Bullet;
+        let expand_task = unsafe {
+            imgui::sys::igTreeNodeEx_Str(task_title_cstr.as_ptr(), flags as i32)
+        };
+        if ui.is_item_hovered() && ui.is_mouse_clicked(MouseButton::Middle) {
+            self.open_task_in_jira(ui, &task);
+        }
+        self.draw_gantt_chart_resources_team_resource_task_popup(ui, task_id, &task);
+
+        self.drawing_aids.previous_rect = None;
+        for i in 1..=self.project.flow_state().cache().num_days() {
+            if ui.table_next_column() {
+                let _day_token_id = ui.push_id_usize(i);
+                let day = self.project.flow_state().cache().day(i - 1);
+                self.draw_cell_background(ui, &day);
+                self.draw_worklog(ui, &day, resource_id, resource, task_id, &task);
+                self.draw_alloc_as_watcher(ui, &day, task.assignee.as_ref(), task_id, &task);
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
                 self.draw_gantt_chart_resources_team_resource_task_content_popup(ui, resource_id, &resource, task_id, &task, &day);
@@ -818,6 +866,102 @@ impl Gui {
             let top_left = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height - alloc_height];
             let bottom_right = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height - worklog_height];
             let alloc_color = [1.0, 1.0, 1.0, 1.0];
+            let border_color = [0.0, 0.0, 0.0, 1.0];
+
+            draw_list.add_rect(top_left, bottom_right, alloc_color)
+                .filled(true)
+                .build();
+
+            if let Some(prev_rect) = self.drawing_aids.previous_rect {
+                let left_top = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height - alloc_height];
+                let left_bottom = [cursor_pos.x, prev_rect.0.y];
+                draw_list.add_line(left_top, left_bottom, border_color)
+                    .thickness(1.0)
+                    .build();
+            } else {
+                let left_top = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height - alloc_height];
+                let left_bottom = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height];
+                draw_list.add_line(left_top, left_bottom, border_color)
+                    .thickness(1.0)
+                    .build();
+            }
+            
+            let top_left_border = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height - alloc_height];
+            let top_right_border = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height  - worklog_height - alloc_height];
+            let bottom_left_border = [cursor_pos.x, cursor_pos.y + effective_cell_height  - worklog_height];
+            let bottom_right_border = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height  - worklog_height];
+
+            draw_list.add_line(top_left_border, top_right_border, border_color)
+                .thickness(1.0)
+                .build();
+            draw_list.add_line(bottom_left_border, bottom_right_border, border_color)
+                .thickness(1.0)
+                .build();
+            self.drawing_aids = DrawingAids{
+                previous_rect: Some((
+                    ImVec2 { x: top_left[0], y: top_left[1] },
+                    ImVec2 { x: bottom_right[0], y: bottom_right[1] })),
+                ..self.drawing_aids
+            };
+        } else {
+            if let Some(prev_rect) = self.drawing_aids.previous_rect {
+                let cursor_pos = unsafe {
+                    let mut pos = ImVec2 { x: 0.0, y: 0.0 };
+                    igGetCursorScreenPos(&mut pos);
+                    pos
+                };
+                let border_color = [0.0, 0.0, 0.0, 1.0];
+
+                let right_top = [cursor_pos.x, prev_rect.0.y];
+                let right_bottom = [cursor_pos.x, cursor_pos.y + effective_cell_height];
+
+                ui.get_window_draw_list().add_line(right_top, right_bottom, border_color)
+                    .thickness(1.0)
+                    .build();
+                self.drawing_aids = DrawingAids{
+                    previous_rect: None,
+                    ..self.drawing_aids
+                };
+            }
+        }
+    }
+
+    fn draw_alloc_as_watcher(&mut self, ui: &Ui, day: &NaiveDate, resource_id: Option<&ResourceId>, task_id: &TaskId, task: &Task) {
+        let cell_height = unsafe { igGetTextLineHeight() };
+        let cell_padding = unsafe { ui.style().cell_padding };
+        let effective_cell_height = cell_height + (cell_padding[1]);
+        let effective_cell_width = ui.current_column_width();
+
+        let worklog = self.project.flow_state().worklogs.get(task_id)
+            .and_then(|r| r.get(resource_id.unwrap_or(&0)))
+            .and_then(|r| r.get(day));
+        let alloc = if let Some(resource_id) = resource_id {
+            self.project.flow_state().cache().task_alloc_rendering.get(task_id)
+                .and_then(|r| r.get(resource_id))
+                .and_then(|r| r.get(day))
+        } else {
+            self.project.flow_state().cache().unassigned_task_alloc_rendering.get(task_id)
+                .and_then(|r| r.get(day))
+        };
+        if let Some(alloc) = alloc {
+            let cursor_pos = unsafe {
+                let mut pos = ImVec2 { x: 0.0, y: 0.0 };
+                igGetCursorScreenPos(&mut pos);
+                pos.y -= cell_padding[1] / 2.0;
+                pos
+            };
+
+            let alloc_height = effective_cell_height * (*alloc as f32 / 100.0);
+            let worklog_height = if let Some(worklog) = worklog {
+                effective_cell_height * (worklog.fraction as f32) / 100.0
+            } else {
+                0.0
+            };
+
+            let draw_list = ui.get_window_draw_list();
+            let top_left = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height - alloc_height];
+            let bottom_right = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height - worklog_height];
+            let alloc_color = [0.9, 0.9, 0.9, 1.0];
             let border_color = [0.0, 0.0, 0.0, 1.0];
 
             draw_list.add_rect(top_left, bottom_right, alloc_color)
@@ -1605,21 +1749,22 @@ impl Gui {
                             }
                             total
                         };
-                        let remaining_fraction = 100 - absence_fraction as u32 - total_worklogs_for_resource_for_day;
-                        let current_worklog_fraction = self.project.flow_state().worklogs.get(task_id)
-                            .and_then(|task_allocs| task_allocs.get(resource_id))
-                            .and_then(|resource_worklogs| resource_worklogs.get(day))
-                            .map(|w| w.fraction)
-                            .unwrap_or(0);
-                        self.project.invoke_command(Command::SetWorklog {
-                            timestamp: Utc::now(),
-                            task_id: *task_id,
-                            date: *day,
-                            resource_name: resource.name.clone(),
-                            fraction: current_worklog_fraction + remaining_fraction as u8,
-                        }).unwrap_or_else(|e| {
-                            eprintln!("Failed to update task: {e}");
-                        });
+                        if let Some(remaining_fraction) = 100u32.checked_sub(absence_fraction as u32 + total_worklogs_for_resource_for_day) {
+                            let current_worklog_fraction = self.project.flow_state().worklogs.get(task_id)
+                                .and_then(|task_allocs| task_allocs.get(resource_id))
+                                .and_then(|resource_worklogs| resource_worklogs.get(day))
+                                .map(|w| w.fraction)
+                                .unwrap_or(0);
+                            self.project.invoke_command(Command::SetWorklog {
+                                timestamp: Utc::now(),
+                                task_id: *task_id,
+                                date: *day,
+                                resource_name: resource.name.clone(),
+                                fraction: current_worklog_fraction + remaining_fraction as u8,
+                            }).unwrap_or_else(|e| {
+                                eprintln!("Failed to update task: {e}");
+                            });
+                        }
                     }
                 }
             }
