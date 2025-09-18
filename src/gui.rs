@@ -74,7 +74,7 @@ impl Gui {
             find_input_buffer: String::new(),
             team_input_text_buffer: String::new(),
             resource_input_text_buffer: String::new(),
-            ticket_input_text_buffer: String::new(),
+            ticket_input_text_buffer: "FIVEG-".to_string(),
             task_title_input_text_buffer: String::new(),
             task_duration_days: 1.0,
             pto_duration_days: 0.0,
@@ -1050,6 +1050,7 @@ impl Gui {
                         .build(&mut self.task_duration_days);
                     ui.input_float("##duration_input", &mut self.task_duration_days)
                         .display_format("%.2f days")
+                        .step(1.0)
                         .build();
                     if ui.button("Ok") {
                         can_create_task = is_info_filled_in(
@@ -1060,27 +1061,38 @@ impl Gui {
                     if can_create_task {
                         ui.close_current_popup();
                         let task_id = self.project.flow_state_mut().next_task_id();
+                        let mut commands = vec![
+                            Command::CreateTask {
+                                timestamp: Utc::now(),
+                                id: task_id,
+                                ticket: self.ticket_input_text_buffer.clone(),
+                                title: self.task_title_input_text_buffer.clone(),
+                                duration: TaskDuration {
+                                    days: self.task_duration_days as u64,
+                                    fraction: (self.task_duration_days.fract() * 100.0) as u8,
+                                },
+                            },
+                            Command::AssignTask {
+                                timestamp: Utc::now(),
+                                task_id: task_id,
+                                resource_name: resource.name.clone(),
+                            }
+                        ];
+                        for &label_id in &self.filtered_labels {
+                            if let Some(label) = self.project.flow_state().labels.get(&label_id) {
+                                commands.push(Command::AddLabelToTask {
+                                    timestamp: Utc::now(),
+                                    task_id,
+                                    label_name: label.name.clone(),
+                                });
+                            }
+                        }
                         self.project.invoke_command(Command::CompoundCommand {
                             timestamp: Utc::now(),
-                            commands: vec![
-                                Command::CreateTask {
-                                    timestamp: Utc::now(),
-                                    id: task_id,
-                                    ticket: self.ticket_input_text_buffer.clone(),
-                                    title: self.task_title_input_text_buffer.clone(),
-                                    duration: TaskDuration {
-                                        days: self.task_duration_days as u64,
-                                        fraction: (self.task_duration_days.fract() * 100.0) as u8,
-                                    },
-                                },
-                                Command::AssignTask {
-                                    timestamp: Utc::now(),
-                                    task_id: task_id,
-                                    resource_name: resource.name.clone(),
-                                }
-                            ]}).unwrap_or_else(|e| {
-                                eprintln!("Failed to assign task: {e}");
-                            });
+                            commands,
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to assign task: {e}");
+                        });
                         self.task_title_input_text_buffer.clear();
                     }
                 }
@@ -1143,7 +1155,7 @@ impl Gui {
             }
             if let Some(_create_resource_menu) = ui.begin_menu(add_or_update_pto_string) {
                 if let Some(_child_window) = ui.child_window("##add_or_update_pto_menu")
-                        .size([180.0, 70.0])
+                        .size([270.0, 80.0])
                         .begin() {
                     let mut can_add_or_update_pto = false;
                     ui.slider_config("##duration", 0.1, 30.0)
@@ -1151,9 +1163,29 @@ impl Gui {
                         .build(&mut self.pto_duration_days);
                     ui.input_float("##duration_input", &mut self.pto_duration_days)
                         .display_format("%.2f days")
+                        .step(1.0)
                         .build();
                     ui.same_line();
                     if ui.button("Ok") {
+                        can_add_or_update_pto = is_info_filled_in(self.pto_duration_days);
+                    }
+                    if ui.button("Half day") {
+                        self.pto_duration_days = 0.5;
+                        can_add_or_update_pto = is_info_filled_in(self.pto_duration_days);
+                    }
+                    ui.same_line();
+                    if ui.button("1 day") {
+                        self.pto_duration_days = 1.0;
+                        can_add_or_update_pto = is_info_filled_in(self.pto_duration_days);
+                    }
+                    ui.same_line();
+                    if ui.button("2 days") {
+                        self.pto_duration_days = 2.0;
+                        can_add_or_update_pto = is_info_filled_in(self.pto_duration_days);
+                    }
+                    ui.same_line();
+                    if ui.button("1 week") {
+                        self.pto_duration_days = 5.0;
                         can_add_or_update_pto = is_info_filled_in(self.pto_duration_days);
                     }
                     if can_add_or_update_pto {
@@ -1294,6 +1326,7 @@ impl Gui {
                         .build(&mut self.task_duration_days);
                     ui.input_float("##duration_input", &mut self.task_duration_days)
                         .display_format("%.2f days")
+                        .step(1.0)
                         .build();
                     if ui.button("Ok") {
                         can_update_task = is_info_filled_in(
@@ -1696,6 +1729,7 @@ impl Gui {
                         .build(&mut self.task_duration_days);
                     ui.input_float("##duration_input", &mut self.task_duration_days)
                         .display_format("%.2f days")
+                        .step(1.0)
                         .build();
                     if ui.button("Ok") {
                         can_create_task = is_info_filled_in(
@@ -1706,19 +1740,33 @@ impl Gui {
                     if can_create_task {
                         ui.close_current_popup();
                         let task_id = self.project.flow_state_mut().next_task_id();
-                        self.project.invoke_command(Command::CreateTask {
+                        let mut commands = vec![
+                            Command::CreateTask {
+                                timestamp: Utc::now(),
+                                id: task_id,
+                                ticket: self.ticket_input_text_buffer.clone(),
+                                title: self.task_title_input_text_buffer.clone(),
+                                duration: TaskDuration {
+                                    days: self.task_duration_days as u64,
+                                    fraction: (self.task_duration_days.fract() * 100.0) as u8,
+                                },
+                            }
+                        ];
+                        for &label_id in &self.filtered_labels {
+                            if let Some(label) = self.project.flow_state().labels.get(&label_id) {
+                                commands.push(Command::AddLabelToTask {
+                                    timestamp: Utc::now(),
+                                    task_id,
+                                    label_name: label.name.clone(),
+                                });
+                            }
+                        }                                                
+                        self.project.invoke_command(Command::CompoundCommand {
                             timestamp: Utc::now(),
-                            id: task_id,
-                            ticket: self.ticket_input_text_buffer.clone(),
-                            title: self.task_title_input_text_buffer.clone(),
-                            duration: TaskDuration {
-                                days: self.task_duration_days as u64,
-                                fraction: (self.task_duration_days.fract() * 100.0) as u8,
-                            },
+                            commands,
                         }).unwrap_or_else(|e| {
                             eprintln!("Failed to create task: {e}");
-                        });
-                        self.task_title_input_text_buffer.clear();
+                        }); self.task_title_input_text_buffer.clear();
                     }
                 }
             }
@@ -1782,6 +1830,7 @@ impl Gui {
                         .build(&mut self.task_duration_days);
                     ui.input_float("##duration_input", &mut self.task_duration_days)
                         .display_format("%.2f days")
+                        .step(1.0)
                         .build();
                     if ui.button("Ok") {
                         can_update_task = is_info_filled_in(
