@@ -408,9 +408,9 @@ pub struct Project {
 }
 
 impl Project {
-    pub fn new() -> Self {
+    pub fn new(yaml_filename: &str) -> Self {
         Self {
-            filename: None,
+            filename: Some(yaml_filename.to_string()),
             command_stack: Vec::new(),
             num_commands_applied: 0,
             flow_state: FlowState::new(),
@@ -1602,7 +1602,7 @@ mod tests {
 
     #[test]
     fn test_undo_redo_create_task() {
-        let mut app = Project::new();
+        let mut app = Project::new("test_project");
         
         let timestamp = Utc::now();
         let task_id = app.flow_state_mut().next_task_id();
@@ -1632,7 +1632,7 @@ mod tests {
 
     #[test]
     fn test_create_team_create_resource_save_to_yaml_load_from_yaml() {
-        let mut app = Project::new();
+        let mut app = Project::new("test_project");
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
         let resource_name = "Alice".to_string();
