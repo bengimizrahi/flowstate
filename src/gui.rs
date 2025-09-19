@@ -45,11 +45,12 @@ pub struct Gui {
 struct DrawingAids {
     previous_rect: Option<(ImVec2, ImVec2)>,
     row_counter: usize,
+    pending_draws: Vec<([f32; 2], [f32; 4], String)>,
 }
 
 impl DrawingAids {
     pub fn new() -> Self {
-        DrawingAids { previous_rect: None, row_counter: 0 }
+        DrawingAids { previous_rect: None, row_counter: 0, pending_draws: Vec::new() }
     }
 }
 
@@ -140,6 +141,7 @@ impl Gui {
         self.draw_menu_bar(ui);
         self.draw_ribbon(ui);
         self.draw_tab_bar(ui);
+        self.apply_pending_draws(ui);
     }
 
     fn draw_menu_bar(&mut self, ui: &Ui) {
@@ -498,38 +500,22 @@ impl Gui {
                 let day = self.project.flow_state().cache().day(i - 1);
                 if day.weekday() == chrono::Weekday::Sat || day.weekday() == chrono::Weekday::Sun {
                     let bg_color = ui.style_color(StyleColor::TableHeaderBg);
-                    ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
+                    //ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
                 }
                 if let Some(milestones) = self.project.flow_state().cache().date_to_milestones.get(&day) {
                     for milestone in milestones {
-                        let cursor_pos = unsafe {
-                            let mut pos = ImVec2 { x: 0.0, y: 0.0 };
-                            igGetCursorScreenPos(&mut pos);
-                            pos
-                        };
-                        
+                        let cursor_pos = ui.cursor_screen_pos();
+
                         let draw_list = ui.get_window_draw_list();
-                        unsafe {
-                            imgui::sys::igPushClipRect(
-                                ImVec2 { x: f32::NEG_INFINITY, y: f32::NEG_INFINITY },
-                                ImVec2 { x: f32::INFINITY, y: f32::INFINITY },
-                                false
-                            );
-                        }
-                        
                         let text_size = ui.calc_text_size(&milestone.title);
                         let column_width = ui.current_column_width();
+
                         let text_pos = [
-                            cursor_pos.x + (column_width - text_size[0]) * 0.5,
-                            cursor_pos.y
+                            cursor_pos[0] + (column_width - text_size[0]) * 0.5,
+                            cursor_pos[1],
                         ];
-                        
                         let text_color = ui.style_color(StyleColor::Text);
-                        draw_list.add_text(text_pos, text_color, &milestone.title);
-                        
-                        unsafe {
-                            imgui::sys::igPopClipRect();
-                        }
+                        self.drawing_aids.pending_draws.push((text_pos, text_color, milestone.title.clone()));
                     }
                 }
             }
@@ -897,12 +883,10 @@ impl Gui {
             draw_list.add_line(bottom_left_border, bottom_right_border, border_color)
                 .thickness(1.0)
                 .build();
-            self.drawing_aids = DrawingAids{
-                previous_rect: Some((
-                    ImVec2 { x: top_left[0], y: top_left[1] },
-                    ImVec2 { x: bottom_right[0], y: bottom_right[1] })),
-                ..self.drawing_aids
-            };
+            self.drawing_aids.previous_rect = Some((
+                ImVec2 { x: top_left[0], y: top_left[1] },
+                ImVec2 { x: bottom_right[0], y: bottom_right[1] }
+            ));
         } else {
             if let Some(prev_rect) = self.drawing_aids.previous_rect {
                 let cursor_pos = unsafe {
@@ -918,10 +902,7 @@ impl Gui {
                 ui.get_window_draw_list().add_line(right_top, right_bottom, border_color)
                     .thickness(1.0)
                     .build();
-                self.drawing_aids = DrawingAids{
-                    previous_rect: None,
-                    ..self.drawing_aids
-                };
+                self.drawing_aids.previous_rect = None;
             }
         }
     }
@@ -993,12 +974,10 @@ impl Gui {
             draw_list.add_line(bottom_left_border, bottom_right_border, border_color)
                 .thickness(1.0)
                 .build();
-            self.drawing_aids = DrawingAids{
-                previous_rect: Some((
-                    ImVec2 { x: top_left[0], y: top_left[1] },
-                    ImVec2 { x: bottom_right[0], y: bottom_right[1] })),
-                ..self.drawing_aids
-            };
+            self.drawing_aids.previous_rect = Some((
+                ImVec2 { x: top_left[0], y: top_left[1] },
+                ImVec2 { x: bottom_right[0], y: bottom_right[1] }
+            ));
         } else {
             if let Some(prev_rect) = self.drawing_aids.previous_rect {
                 let cursor_pos = unsafe {
@@ -1014,10 +993,7 @@ impl Gui {
                 ui.get_window_draw_list().add_line(right_top, right_bottom, border_color)
                     .thickness(1.0)
                     .build();
-                self.drawing_aids = DrawingAids{
-                    previous_rect: None,
-                    ..self.drawing_aids
-                };
+                self.drawing_aids.previous_rect = None;
             }
         }
     }
@@ -1059,7 +1035,7 @@ impl Gui {
         if let Some(milestones) = self.project.flow_state().cache().date_to_milestones.get(day) {
             let cell_height = unsafe { igGetTextLineHeight() };
             let cell_padding = unsafe { ui.style().cell_padding };
-            let effective_cell_height = cell_height + (cell_padding[1]);
+            let effective_cell_height = cell_height + (2.0 * cell_padding[1]);
             let effective_cell_width = ui.current_column_width();
 
             let cursor_pos = unsafe {
@@ -2212,6 +2188,20 @@ impl Gui {
                 }
             }
         }
+    }
+
+    fn apply_pending_draws(&mut self, ui: &Ui) {
+        let draw_list = ui.get_window_draw_list();
+        for (pos, color, text) in self.drawing_aids.pending_draws.drain(..) {
+            draw_list.with_clip_rect_intersect(
+                [f32::NEG_INFINITY, f32::NEG_INFINITY],
+                [f32::INFINITY, f32::INFINITY],
+                || {
+                    draw_list.add_text(pos, color, &text);
+                },
+            );
+        }
+        self.drawing_aids.pending_draws.clear();
     }
 
     fn open_task_in_jira(&mut self, ui:& Ui, task: &Task) {
