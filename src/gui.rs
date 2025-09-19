@@ -379,7 +379,17 @@ impl Gui {
         ui.text("Find");
         ui.same_line();
         ui.set_next_item_width(200.0);
+        
+        if ui.is_key_pressed(Key::F) && ui.io().key_ctrl {
+            ui.set_keyboard_focus_here();
+        }
         ui.input_text("##find", &mut self.find_input_buffer).build();
+        
+        // Handle keyboard input for find buffer
+        if ui.is_key_pressed(Key::Escape) {
+            self.find_input_buffer.clear();
+        }
+
         for (filter_id, filter) in &self.project.flow_state().filters {
             if filter.is_favorite {
                 ui.same_line();
