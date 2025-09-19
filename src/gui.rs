@@ -32,7 +32,7 @@ pub struct Gui {
     ticket_input_text_buffer: String,
     task_title_input_text_buffer: String,
     task_duration_days: f32,
-    pto_duration_days: f32,
+    absence_duration_days: f32,
     worklog_fraction: u8,
     milestone_input_text_buffer: String,
     milestone_date_input_text_buffer: String,
@@ -78,7 +78,7 @@ impl Gui {
             ticket_input_text_buffer: "FIVEG-".to_string(),
             task_title_input_text_buffer: String::new(),
             task_duration_days: 1.0,
-            pto_duration_days: 0.0,
+            absence_duration_days: 0.0,
             worklog_fraction: 0,
             milestone_input_text_buffer: String::new(),
             milestone_date_input_text_buffer: String::new(),
@@ -498,15 +498,10 @@ impl Gui {
             if ui.table_next_column() {
                 let _id = ui.push_id_usize(i);
                 let day = self.project.flow_state().cache().day(i - 1);
-                if day.weekday() == chrono::Weekday::Sat || day.weekday() == chrono::Weekday::Sun {
-                    let bg_color = ui.style_color(StyleColor::TableHeaderBg);
-                    //ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
-                }
                 if let Some(milestones) = self.project.flow_state().cache().date_to_milestones.get(&day) {
                     for milestone in milestones {
                         let cursor_pos = ui.cursor_screen_pos();
 
-                        let draw_list = ui.get_window_draw_list();
                         let text_size = ui.calc_text_size(&milestone.title);
                         let column_width = ui.current_column_width();
 
@@ -1262,72 +1257,72 @@ impl Gui {
                 |duration: f32| {
             duration > 0.0
         };
-        let add_or_update_pto_string;
+        let add_or_update_absence_string;
         let mut show_remove_option = false;
         if let Some(_popup) = ui.begin_popup_context_item() {
             if self.project.flow_state().cache().resource_absence_rendering.get(resource_id).is_none() ||
                     self.project.flow_state().cache().resource_absence_rendering.get(resource_id).unwrap().get(day).is_none() ||
                     *self.project.flow_state().cache().resource_absence_rendering.get(resource_id).unwrap().get(day).unwrap() == 0 {
-                add_or_update_pto_string = "Add PTO";
+                add_or_update_absence_string = "Add Absence";
             } else {
-                add_or_update_pto_string = "Update PTO";
+                add_or_update_absence_string = "Update Absence";
                 show_remove_option = true;
             }
-            if let Some(_create_resource_menu) = ui.begin_menu(add_or_update_pto_string) {
-                if let Some(_child_window) = ui.child_window("##add_or_update_pto_menu")
+            if let Some(_create_resource_menu) = ui.begin_menu(add_or_update_absence_string) {
+                if let Some(_child_window) = ui.child_window("##add_or_update_absence_menu")
                         .size([270.0, 80.0])
                         .begin() {
-                    let mut can_add_or_update_pto = false;
+                    let mut can_add_or_update_absence = false;
                     ui.slider_config("##duration", 0.1, 30.0)
                         .display_format("%.0f days")
-                        .build(&mut self.pto_duration_days);
-                    ui.input_float("##duration_input", &mut self.pto_duration_days)
+                        .build(&mut self.absence_duration_days);
+                    ui.input_float("##duration_input", &mut self.absence_duration_days)
                         .display_format("%.2f days")
                         .step(1.0)
                         .build();
                     ui.same_line();
                     if ui.button("Ok") {
-                        can_add_or_update_pto = is_info_filled_in(self.pto_duration_days);
+                        can_add_or_update_absence = is_info_filled_in(self.absence_duration_days);
                     }
                     if ui.button("Half day") {
-                        self.pto_duration_days = 0.5;
-                        can_add_or_update_pto = is_info_filled_in(self.pto_duration_days);
+                        self.absence_duration_days = 0.5;
+                        can_add_or_update_absence = is_info_filled_in(self.absence_duration_days);
                     }
                     ui.same_line();
                     if ui.button("1 day") {
-                        self.pto_duration_days = 1.0;
-                        can_add_or_update_pto = is_info_filled_in(self.pto_duration_days);
+                        self.absence_duration_days = 1.0;
+                        can_add_or_update_absence = is_info_filled_in(self.absence_duration_days);
                     }
                     ui.same_line();
                     if ui.button("2 days") {
-                        self.pto_duration_days = 2.0;
-                        can_add_or_update_pto = is_info_filled_in(self.pto_duration_days);
+                        self.absence_duration_days = 2.0;
+                        can_add_or_update_absence = is_info_filled_in(self.absence_duration_days);
                     }
                     ui.same_line();
                     if ui.button("1 week") {
-                        self.pto_duration_days = 5.0;
-                        can_add_or_update_pto = is_info_filled_in(self.pto_duration_days);
+                        self.absence_duration_days = 5.0;
+                        can_add_or_update_absence = is_info_filled_in(self.absence_duration_days);
                     }
-                    if can_add_or_update_pto {
+                    if can_add_or_update_absence {
                         ui.close_current_popup();
-                        let pto_duration = TaskDuration {
-                            days: self.pto_duration_days as u64,
-                            fraction: (self.pto_duration_days.fract() * 100.0) as u8,
+                        let absence_duration = TaskDuration {
+                            days: self.absence_duration_days as u64,
+                            fraction: (self.absence_duration_days.fract() * 100.0) as u8,
                         };
                         self.project.invoke_command(Command::SetAbsence {
                             timestamp: Utc::now(),
                             resource_name: resource.name.clone(),
                             start_date: *day,
-                            days: pto_duration,
+                            days: absence_duration,
                         }).unwrap_or_else(|e| {
-                            gui_log!(self, "Failed to add PTO: {e}");
+                            gui_log!(self, "Failed to add Absence: {e}");
                         });
-                        self.pto_duration_days = 0.0;
+                        self.absence_duration_days = 0.0;
                     }
                 }
             }
             if show_remove_option {
-                if ui.menu_item("Remove PTO") {
+                if ui.menu_item("Remove Absence") {
                     self.project.invoke_command(Command::SetAbsence {
                         timestamp: Utc::now(),
                         resource_name: resource.name.clone(),
@@ -1337,7 +1332,7 @@ impl Gui {
                             fraction: 0,
                         },
                     }).unwrap_or_else(|e| {
-                        gui_log!(self, "Failed to remove PTO: {e}");
+                        gui_log!(self, "Failed to remove Absence: {e}");
                     });
                 }
             }
