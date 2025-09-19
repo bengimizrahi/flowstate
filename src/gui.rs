@@ -663,11 +663,14 @@ impl Gui {
     fn draw_gantt_chart_resources_team_resource_task_as_watcher(&mut self, ui: &Ui, resource_id: &ResourceId, resource: &Resource, task_id: &TaskId) {
         ui.table_next_row();
         ui.table_next_column();
+        let _watcher_token_id = ui.push_id("##as_watcher");
         let _task_token_id = ui.push_id_int(*task_id as i32);
         let task = self.project.flow_state().tasks.get(task_id).unwrap().clone();
-            let task_title_cstr = std::ffi::CString::new(format!("(-.-) {} - {}", task.ticket, task.title)).unwrap();
+            let task_title_cstr = std::ffi::CString::new(format!("{} - {}", task.ticket, task.title)).unwrap();
         let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_Bullet;
         let expand_task = unsafe {
+            let disabled_color = ui.style_color(StyleColor::TextDisabled);
+            let _style = ui.push_style_color(imgui::StyleColor::Text, disabled_color);
             imgui::sys::igTreeNodeEx_Str(task_title_cstr.as_ptr(), flags as i32)
         };
         if ui.is_item_hovered() && ui.is_mouse_clicked(MouseButton::Middle) {
