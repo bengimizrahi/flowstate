@@ -1,15 +1,17 @@
 
-use core::alloc;
-
 use crate::app::*;
+use crate::gui;
 use crate::support;
 use imgui::sys::igGetCursorScreenPos;
 use imgui::sys::igGetTextLineHeight;
 use imgui::sys::ImVec2;
 use imgui::*;
 use chrono::{Utc, Datelike, NaiveDate};
+use serde::{Deserialize, Serialize};
 
-const CREATE_TEAM_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 30.0];
+
+const NEW_PROJECT_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 30.0];
+const CREATE_TEAM_CHILD_WINDOW_SIZE: [f32; 2] = NEW_PROJECT_CHILD_WINDOW_SIZE;
 const RENAME_TEAM_CHILD_WINDOW_SIZE: [f32; 2] = CREATE_TEAM_CHILD_WINDOW_SIZE;
 const CREATE_RESOURCE_CHILD_WINDOW_SIZE: [f32; 2] = CREATE_TEAM_CHILD_WINDOW_SIZE;
 const RENAME_RESOURCE_CHILD_WINDOW_SIZE: [f32; 2] = CREATE_RESOURCE_CHILD_WINDOW_SIZE;
@@ -20,6 +22,7 @@ const SET_WORKLOG_CHILD_WINDOW_SIZE: [f32; 2] = [260.0, 100.0];
 const CREATE_LABEL_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 70.0];
 
 pub struct Gui {
+    gui_config: GuiConfig,
     project: Project,
 
     filtered_labels: Vec<LabelId>,
@@ -27,6 +30,7 @@ pub struct Gui {
 
     bold_font: std::rc::Rc<std::cell::RefCell<Option<FontId>>>,
     find_input_buffer: String,
+    new_project_input_text_buffer: String,
     team_input_text_buffer: String,
     resource_input_text_buffer: String,
     ticket_input_text_buffer: String,
@@ -62,10 +66,13 @@ macro_rules! gui_log {
 
 impl Gui {
     pub fn new() -> Self {
+        let gui_config = GuiConfig::load_from_yaml("config.yaml");
+        let yaml_filename = gui_config.recent_project_files.first().cloned().unwrap_or_else(|| "database.yaml".to_string());
         Gui {
-            project: Project::load_from_yaml("database.yaml").unwrap_or_else(|e| {
+            gui_config,
+            project: Project::load_from_yaml(&yaml_filename).unwrap_or_else(|e| {
                 eprintln!("Failed to load project: {e}");
-                Project::new()
+                Project::new(&yaml_filename)
             }),
 
             filtered_labels: Vec::new(),
@@ -73,6 +80,7 @@ impl Gui {
 
             bold_font: std::rc::Rc::new(std::cell::RefCell::new(None)),
             find_input_buffer: String::new(),
+            new_project_input_text_buffer: String::new(),
             team_input_text_buffer: String::new(),
             resource_input_text_buffer: String::new(),
             ticket_input_text_buffer: "FIVEG-".to_string(),
@@ -103,6 +111,7 @@ impl Gui {
         support::init_with_startup(
             file!(),
             move |ctx, renderer, _| {
+                ctx.set_ini_filename(Some(std::path::PathBuf::from("imgui.ini")));
                 let mut bold_font_handle = bold_font_for_init.borrow_mut();
                 *bold_font_handle = Some(ctx.fonts().add_font(&[FontSource::TtfData {
                     data: include_bytes!("../res/Roboto-Bold.ttf"),
@@ -157,12 +166,66 @@ impl Gui {
         }
         if let Some(_menu_bar) = ui.begin_menu_bar() {
             if let Some(_file_menu) = ui.begin_menu("File") {
-                if ui.menu_item("New Project...") {
-
+                if let Some(_new_project_menu) = ui.begin_menu("New Project") {
+                    if let Some(_child_window) = ui.child_window("##new_project_menu")
+                            .size(NEW_PROJECT_CHILD_WINDOW_SIZE)
+                            .begin() {
+                        ui.input_text("##new_project_name", &mut self.new_project_input_text_buffer)
+                            .enter_returns_true(true)
+                            .hint("Enter project name")
+                            .build();
+                        ui.same_line();
+                        if ui.button("Ok") {
+                            ui.close_current_popup();
+                            self.project = Project::new(&self.new_project_input_text_buffer);
+                            gui_log!(self, "Created new project");
+                            if !self.gui_config.recent_project_files.contains(&self.new_project_input_text_buffer) {
+                                self.gui_config.recent_project_files.push(self.new_project_input_text_buffer.clone());
+                                self.gui_config.save_to_file();
+                            }
+                            self.new_project_input_text_buffer.clear();
+                        }
+                    }
                 }
-                if ui.menu_item("Work on Existing Project...") {
-
+                if ui.menu_item("Open Project...") {
+                    if let Some(file_path) = rfd::FileDialog::new()
+                        .add_filter("YAML files", &["yaml", "yml"])
+                        .set_directory(".")
+                        .pick_file() 
+                    {
+                        let file_path_str = file_path.to_string_lossy().to_string();
+                        match Project::load_from_yaml(&file_path_str) {
+                            Ok(project) => {
+                                if !self.gui_config.recent_project_files.contains(&file_path_str) {
+                                    self.gui_config.recent_project_files.push(file_path_str.clone());
+                                    self.gui_config.save_to_file();
+                                }
+                                self.project = project;
+                                gui_log!(self, "Opened project from {file_path_str}");
+                            },
+                            Err(e) => {
+                                gui_log!(self, "Failed to open project from {file_path_str}: {e}");
+                            }
+                        }
+                    }
                 }
+                if let Some(_open_recent_menu) = ui.begin_menu("Open Recent") {
+                    let recent_files = self.gui_config.recent_project_files.clone();
+                    for recent_file in &recent_files {
+                        if ui.menu_item(recent_file) {
+                            match Project::load_from_yaml(recent_file) {
+                                Ok(project) => {
+                                    self.project = project;
+                                    gui_log!(self, "Opened project from {recent_file}");
+                                },
+                                Err(e) => {
+                                    gui_log!(self, "Failed to open project from {recent_file}: {e}");
+                                }
+                            }
+                        }
+                    }
+                }
+                ui.separator();
                 if ui.menu_item("Exit") {
                     std::process::exit(0);
                 }
@@ -385,7 +448,6 @@ impl Gui {
         }
         ui.input_text("##find", &mut self.find_input_buffer).build();
         
-        // Handle keyboard input for find buffer
         if ui.is_key_pressed(Key::Escape) {
             self.find_input_buffer.clear();
         }
@@ -569,8 +631,9 @@ impl Gui {
         }
 
         if expand_team {
-            let resources: Vec<ResourceId> = self.project.flow_state().teams[team_id]
+            let mut resources: Vec<ResourceId> = self.project.flow_state().teams[team_id]
                 .resources.iter().map(|r| r.clone()).collect();
+            resources.sort_by_key(|r| self.project.flow_state().resources[r].name.clone());
             for (i, resource_id) in resources.iter().enumerate() {
                 self.drawing_aids.row_counter = i;
                 self.draw_gantt_chart_resources_team_resource(ui, resource_id);
@@ -2220,5 +2283,33 @@ impl Gui {
         webbrowser::open(&jira_url).unwrap_or_else(|e| {
             gui_log!(self, "Failed to open JIRA URL: {}", e);
         });
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct GuiConfig {
+    pub config_filename: String,
+    pub ticket_prefix: String,
+    pub recent_project_files: Vec<String>,
+}
+
+impl GuiConfig {
+    fn load_from_yaml(path: &str) -> Self {
+        if let Ok(contents) = std::fs::read_to_string(path) {
+            if let Ok(config) = serde_yaml::from_str::<GuiConfig>(&contents) {
+                return config;
+            }
+        }
+        GuiConfig {
+            config_filename: path.to_string(),
+            ticket_prefix: "PROJ-".to_string(),
+            recent_project_files: Vec::new(),
+        }
+    }
+
+    fn save_to_file(&self) {
+        if let Ok(contents) = serde_yaml::to_string(self) {
+            let _ = std::fs::write(&self.config_filename, contents);
+        }
     }
 }
