@@ -16,7 +16,7 @@ const RENAME_RESOURCE_CHILD_WINDOW_SIZE: [f32; 2] = CREATE_RESOURCE_CHILD_WINDOW
 const CREATE_TASK_CHILD_WINDOW_SIZE: [f32; 2] = [180.0, 150.0];
 const UPDATE_TASK_CHILD_WINDOW_SIZE: [f32; 2] = CREATE_TASK_CHILD_WINDOW_SIZE;
 const CREATE_MILESTONE_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 70.0];
-const SET_WORKLOG_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 70.0];
+const SET_WORKLOG_CHILD_WINDOW_SIZE: [f32; 2] = [260.0, 100.0];
 const CREATE_LABEL_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 70.0];
 
 pub struct Gui {
@@ -783,7 +783,7 @@ impl Gui {
         if let Some(absence) = self.project.flow_state().cache().resource_absence_rendering.get(resource_id).and_then(|r| r.get(day)) {
             let cell_height = unsafe { igGetTextLineHeight() };
             let cell_padding = unsafe { ui.style().cell_padding };
-            let effective_cell_height = cell_height + (cell_padding[1] * 2.0);
+            let effective_cell_height = cell_height + 1.5 * cell_padding[1];
             let effective_cell_width = ui.current_column_width();
 
             let cursor_pos = unsafe {
@@ -794,7 +794,6 @@ impl Gui {
             };
 
             let absence_height = (effective_cell_height * (*absence as f32 / 100.0)).max(1.0);
-
             let draw_list = ui.get_window_draw_list();
             let top_left = [cursor_pos.x, cursor_pos.y];
             let bottom_right = [cursor_pos.x + effective_cell_width, cursor_pos.y + absence_height];
@@ -1640,6 +1639,19 @@ impl Gui {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
+                    if ui.button("0%") {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::SetWorklog {
+                            timestamp: Utc::now(),
+                            task_id: *task_id,
+                            date: *day,
+                            resource_name: resource.name.clone(),
+                            fraction: 0,
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                    ui.same_line();
                     if ui.button("10%") {
                         ui.close_current_popup();
                         self.project.invoke_command(Command::SetWorklog {
