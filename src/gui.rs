@@ -1166,49 +1166,48 @@ impl Gui {
                         .display_format("%.2f days")
                         .step(1.0)
                         .build();
-                    if ui.button("Ok") {
-                        can_create_task = is_info_filled_in(
+                    ui.disabled(!is_info_filled_in(
                             &self.task_title_input_text_buffer,
                             &self.ticket_input_text_buffer,
-                            self.task_duration_days);
-                    }
-                    if can_create_task {
-                        ui.close_current_popup();
-                        let task_id = self.project.flow_state_mut().next_task_id();
-                        let mut commands = vec![
-                            Command::CreateTask {
-                                timestamp: Utc::now(),
-                                id: task_id,
-                                ticket: self.ticket_input_text_buffer.clone(),
-                                title: self.task_title_input_text_buffer.clone(),
-                                duration: TaskDuration {
-                                    days: self.task_duration_days as u64,
-                                    fraction: (self.task_duration_days.fract() * 100.0) as u8,
-                                },
-                            },
-                            Command::AssignTask {
-                                timestamp: Utc::now(),
-                                task_id: task_id,
-                                resource_name: resource.name.clone(),
-                            }
-                        ];
-                        for &label_id in &self.filtered_labels {
-                            if let Some(label) = self.project.flow_state().labels.get(&label_id) {
-                                commands.push(Command::AddLabelToTask {
+                            self.task_duration_days), || {
+                        if ui.button("Ok") {
+                            ui.close_current_popup();
+                            let task_id = self.project.flow_state_mut().next_task_id();
+                            let mut commands = vec![
+                                Command::CreateTask {
                                     timestamp: Utc::now(),
-                                    task_id,
-                                    label_name: label.name.clone(),
-                                });
+                                    id: task_id,
+                                    ticket: self.ticket_input_text_buffer.clone(),
+                                    title: self.task_title_input_text_buffer.clone(),
+                                    duration: TaskDuration {
+                                        days: self.task_duration_days as u64,
+                                        fraction: (self.task_duration_days.fract() * 100.0) as u8,
+                                    },
+                                },
+                                Command::AssignTask {
+                                    timestamp: Utc::now(),
+                                    task_id: task_id,
+                                    resource_name: resource.name.clone(),
+                                }
+                            ];
+                            for &label_id in &self.filtered_labels {
+                                if let Some(label) = self.project.flow_state().labels.get(&label_id) {
+                                    commands.push(Command::AddLabelToTask {
+                                        timestamp: Utc::now(),
+                                        task_id,
+                                        label_name: label.name.clone(),
+                                    });
+                                }
                             }
+                            self.project.invoke_command(Command::CompoundCommand {
+                                timestamp: Utc::now(),
+                                commands,
+                            }).unwrap_or_else(|e| {
+                                eprintln!("Failed to assign task: {e}");
+                            });
+                            self.task_title_input_text_buffer.clear();
                         }
-                        self.project.invoke_command(Command::CompoundCommand {
-                            timestamp: Utc::now(),
-                            commands,
-                        }).unwrap_or_else(|e| {
-                            eprintln!("Failed to assign task: {e}");
-                        });
-                        self.task_title_input_text_buffer.clear();
-                    }
+                    });
                 }
             }
             ui.separator();
@@ -1499,64 +1498,56 @@ impl Gui {
                 ui.close_current_popup();
             }
             ui.separator();
-            if let Some(_update_task_menu) = ui.begin_menu("Labels") {
-                if let Some(_add_label_menu) = ui.begin_menu("Add Label") {
-                    let labels: Vec<_> = self.project.flow_state().labels.iter().map(|(id, label)| (*id, label.clone())).collect();
-                    for (label_id, label) in labels {
-                        if !task.label_ids.contains(&label_id) {
-                            if ui.menu_item(&label.name) {
-                                self.project.invoke_command(Command::AddLabelToTask {
-                                    timestamp: Utc::now(),
-                                    task_id: *task_id,
-                                    label_name: label.name.clone(),
-                                }).unwrap_or_else(|e| {
-                                    gui_log!(self, "Failed to add label to task: {e}");
-                                });
-                            }
-                        }
-                    }
-                    if let Some(_update_task_menu) = ui.begin_menu("New Label") {
-                        if let Some(_child_window) = ui.child_window("##new_label")
-                                .size(CREATE_LABEL_CHILD_WINDOW_SIZE)
-                                .begin() {
-                            ui.input_text("##label_name", &mut self.label_input_text_buffer)
-                                .hint("Enter label name")
-                                .build();
-                            if ui.button("Ok") && !self.label_input_text_buffer.is_empty() {
-                                self.project.invoke_command(Command::CompoundCommand {
-                                    timestamp: Utc::now(),
-                                    commands: vec![
-                                        Command::CreateLabel {
-                                            timestamp: Utc::now(),
-                                            name: self.label_input_text_buffer.clone(),
-                                        },
-                                        Command::AddLabelToTask {
-                                            timestamp: Utc::now(),
-                                            task_id: *task_id,
-                                            label_name: self.label_input_text_buffer.clone(),
-                                        }
-                                    ]
-                                }).unwrap_or_else(|e| {
-                                    gui_log!(self, "Failed to create label and add to task: {e}");
-                                });
-                                self.label_input_text_buffer.clear();
-                            }
+            if let Some(_labels_menu) = ui.begin_menu("Labels") {
+                let labels: Vec<_> = self.project.flow_state().labels.iter().map(|(id, label)| (*id, label.clone())).collect();
+                for (label_id, label) in labels {
+                    let is_selected = task.label_ids.contains(&label_id);
+                    if ui.menu_item_config(&label.name).selected(is_selected).build() {
+                        if is_selected {
+                            self.project.invoke_command(Command::RemoveLabelFromTask {
+                                timestamp: Utc::now(),
+                                task_id: *task_id,
+                                label_name: label.name.clone(),
+                            }).unwrap_or_else(|e| {
+                                gui_log!(self, "Failed to remove label from task: {e}");
+                            });
+                        } else {
+                            self.project.invoke_command(Command::AddLabelToTask {
+                                timestamp: Utc::now(),
+                                task_id: *task_id,
+                                label_name: label.name.clone(),
+                            }).unwrap_or_else(|e| {
+                                gui_log!(self, "Failed to add label to task: {e}");
+                            });
                         }
                     }
                 }
-                if let Some(_remove_label_menu) = ui.begin_menu("Remove Label") {
-                    let labels: Vec<_> = self.project.flow_state().labels.iter().map(|(id, label)| (*id, label.clone())).collect();
-                    for (label_id, label) in labels {
-                        if task.label_ids.contains(&label_id) {
-                            if ui.menu_item(&label.name) {
-                                self.project.invoke_command(Command::RemoveLabelFromTask {
-                                    timestamp: Utc::now(),
-                                    task_id: *task_id,
-                                    label_name: label.name.clone(),
-                                }).unwrap_or_else(|e| {
-                                    gui_log!(self, "Failed to remove label from task: {e}");
-                                });
-                            }
+                ui.separator();
+                if let Some(_new_label_menu) = ui.begin_menu("New Label") {
+                    if let Some(_child_window) = ui.child_window("##new_label")
+                            .size(CREATE_LABEL_CHILD_WINDOW_SIZE)
+                            .begin() {
+                        ui.input_text("##label_name", &mut self.label_input_text_buffer)
+                            .hint("Enter label name")
+                            .build();
+                        if ui.button("Ok") && !self.label_input_text_buffer.is_empty() {
+                            self.project.invoke_command(Command::CompoundCommand {
+                                timestamp: Utc::now(),
+                                commands: vec![
+                                    Command::CreateLabel {
+                                        timestamp: Utc::now(),
+                                        name: self.label_input_text_buffer.clone(),
+                                    },
+                                    Command::AddLabelToTask {
+                                        timestamp: Utc::now(),
+                                        task_id: *task_id,
+                                        label_name: self.label_input_text_buffer.clone(),
+                                    }
+                                ]
+                            }).unwrap_or_else(|e| {
+                                gui_log!(self, "Failed to create label and add to task: {e}");
+                            });
+                            self.label_input_text_buffer.clear();
                         }
                     }
                 }
