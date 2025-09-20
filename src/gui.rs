@@ -217,6 +217,11 @@ impl Gui {
                                 Ok(project) => {
                                     self.project = project;
                                     gui_log!(self, "Opened project from {recent_file}");
+                                    if let Some(pos) = self.gui_config.recent_project_files.iter().position(|f| f == recent_file) {
+                                        self.gui_config.recent_project_files.remove(pos);
+                                        self.gui_config.recent_project_files.insert(0, recent_file.clone());
+                                        self.gui_config.save_to_file();
+                                    }
                                 },
                                 Err(e) => {
                                     gui_log!(self, "Failed to open project from {recent_file}: {e}");
@@ -1071,7 +1076,7 @@ impl Gui {
     fn draw_worklog(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, resource: &Resource, task_id: &TaskId, task: &Task) {
         let cell_height = unsafe { igGetTextLineHeight() };
         let cell_padding = unsafe { ui.style().cell_padding };
-        let effective_cell_height = cell_height + (cell_padding[1]);
+        let effective_cell_height = cell_height + 1.5 * cell_padding[1];
         let effective_cell_width = ui.current_column_width();
 
         let worklog = self.project.flow_state().worklogs.get(&task_id)
