@@ -1312,6 +1312,7 @@ pub struct FlowStateCache {
     pub unassigned_task_alloc_rendering: HashMap<TaskId, HashMap<NaiveDate, Fraction>>,
     pub task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>>,
     pub resource_absence_rendering: HashMap<ResourceId, HashMap<NaiveDate, Fraction>>,
+    pub worklogs_on_others_tasks: HashMap<ResourceId, HashMap<NaiveDate, Fraction>>,
 }
 
 impl FlowStateCache {
@@ -1324,6 +1325,7 @@ impl FlowStateCache {
             unassigned_task_alloc_rendering: HashMap::new(),
             task_alloc_rendering: HashMap::new(),
             resource_absence_rendering: HashMap::new(),
+            worklogs_on_others_tasks: HashMap::new(),
         }
     }
 
@@ -1443,6 +1445,22 @@ impl FlowStateCache {
             }
             most_farther_alloc_date = most_farther_alloc_date.max(date);
         }
+        let mut worklogs_on_others_tasks: HashMap<ResourceId, HashMap<NaiveDate, Fraction>> = HashMap::new();
+        for (task_id, task) in &flow_state.tasks {
+            if let Some(resource_map) = flow_state.worklogs.get(task_id) {
+                for (resource_id, date_map) in resource_map {
+                    for (date, worklog) in date_map {
+                        if task.assignee.is_none() || *resource_id != task.assignee.unwrap() {
+                            *worklogs_on_others_tasks
+                                .entry(*resource_id)
+                                .or_insert_with(HashMap::new)
+                                .entry(*date)
+                                .or_insert(0) += worklog.fraction;
+                        }
+                    }
+                }
+            }
+        }
         let mut start_date = flow_state.milestones.iter()
             .map(|m| m.date)
             .min()
@@ -1486,6 +1504,7 @@ impl FlowStateCache {
             unassigned_task_alloc_rendering,
             task_alloc_rendering,
             resource_absence_rendering,
+            worklogs_on_others_tasks,
         }
     }
 
@@ -1504,7 +1523,7 @@ mod tests {
 
     #[test]
     fn test_create_team() {
-        let mut app = Project::new();
+        let mut app = Project::new("test_project.yaml");
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
@@ -1516,7 +1535,7 @@ mod tests {
 
     #[test]
     fn test_undo_create_team() {
-        let mut app = Project::new();
+        let mut app = Project::new("test_project.yaml");
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
@@ -1531,7 +1550,7 @@ mod tests {
 
     #[test]
     fn test_undo_redo_create_team() {
-        let mut app = Project::new();
+        let mut app = Project::new("test_project.yaml");
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
@@ -1550,7 +1569,7 @@ mod tests {
 
     #[test]
     fn test_create_rename_delete_team() {
-        let mut app = Project::new();
+        let mut app = Project::new("test_project.yaml");
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
         let new_team_name = "Engineering".to_string();
@@ -1570,7 +1589,7 @@ mod tests {
 
     #[test]
     fn test_create_rename_switch_team_delete_resource() {
-        let mut app = Project::new();
+        let mut app = Project::new("test_project.yaml");
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
         let resource_name = "Alice".to_string();
@@ -1632,7 +1651,7 @@ mod tests {
 
     #[test]
     fn test_create_team_create_resource_save_to_yaml_load_from_yaml() {
-        let mut app = Project::new("test_project");
+        let mut app = Project::new("test_project.yaml");
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
         let resource_name = "Alice".to_string();
