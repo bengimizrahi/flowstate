@@ -666,6 +666,7 @@ impl Gui {
                 let day = self.project.flow_state().cache().day(i - 1);
                 self.draw_cell_background(ui, &day);
                 self.draw_absence(ui, &day, resource_id, &resource);
+                self.draw_worklog_on_others_tasks(ui, &day, resource_id, &resource);
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
                 self.draw_gantt_chart_resources_team_resource_content_popup(ui, resource_id, &resource, &day);
@@ -1105,6 +1106,36 @@ impl Gui {
         }
     }
 
+    fn draw_worklog_on_others_tasks(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, resource: &Resource) {
+        let cell_height = unsafe { igGetTextLineHeight() };
+        let cell_padding = unsafe { ui.style().cell_padding };
+        let effective_cell_height = cell_height + 1.5 * cell_padding[1];
+        let effective_cell_width = ui.current_column_width();
+
+        let worklog = self.project.flow_state().cache().worklogs_on_others_tasks.get(resource_id)
+            .and_then(|r| r.get(day));
+
+        if let Some(worklog) = worklog {
+            let cursor_pos = unsafe {
+                let mut pos = ImVec2 { x: 0.0, y: 0.0 };
+                igGetCursorScreenPos(&mut pos);
+                pos.y -= cell_padding[1] / 2.0;
+                pos
+            };
+            let worklog_height = effective_cell_height * (*worklog as f32) / 100.0;
+            let worklog_p1 = [
+                cursor_pos.x,
+                cursor_pos.y + effective_cell_height - worklog_height,
+            ];
+            let worklog_p2 = [
+                cursor_pos.x + effective_cell_width,
+                cursor_pos.y + effective_cell_height,
+            ];
+            ui.get_window_draw_list().add_rect(worklog_p1, worklog_p2, [0.6, 0.6, 0.6, 1.0])
+                .filled(true)
+                .build();
+        }
+    }
     fn draw_milestone(&mut self, ui: &Ui, day: &NaiveDate) {
         let today = chrono::Local::now().date_naive();
         if let Some(milestones) = self.project.flow_state().cache().date_to_milestones.get(day) {
