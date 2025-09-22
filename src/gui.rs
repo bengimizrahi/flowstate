@@ -755,7 +755,7 @@ impl Gui {
         if ui.is_item_hovered() && ui.is_mouse_clicked(MouseButton::Middle) {
             self.open_task_in_jira(ui, &task);
         }
-        self.draw_gantt_chart_resources_team_resource_task_popup(ui, task_id, &task);
+        self.draw_gantt_chart_resources_team_resource_task_as_watcher_popup(ui, task_id, &task, resource_id, resource);
 
         self.drawing_aids.previous_rect = None;
         for i in 1..=self.project.flow_state().cache().num_days() {
@@ -1134,8 +1134,48 @@ impl Gui {
             ui.get_window_draw_list().add_rect(worklog_p1, worklog_p2, [0.6, 0.6, 0.6, 1.0])
                 .filled(true)
                 .build();
+
+            if ui.is_item_hovered() {
+                if let Some(_tooltip) = ui.begin_tooltip() {
+                    /* - Show a bulleted list of all the tasks contributing to the worklog (on other's tasks)
+                          - For each task t in tasks:
+                            - Skip if t is assigned to resource
+                            - If there is worklog for resource on task t on that day:
+                                - Show " - {task.ticket} - {task.title}(task.assignee): {worklog.fraction}%"
+                     */
+                    for (task_id, task) in &self.project.flow_state().tasks {
+                        // Skip if task is assigned to this resource
+                        if task.assignee.as_ref() == Some(resource_id) {
+                            continue;
+                        }
+                        
+                        // Check if this resource has worklog on this task on this day
+                        if let Some(worklog) = self.project.flow_state().worklogs.get(task_id)
+                            .and_then(|task_worklogs| task_worklogs.get(resource_id))
+                            .and_then(|resource_worklogs| resource_worklogs.get(day)) {
+                            
+                            let assignee_name = task.assignee
+                                .and_then(|id| self.project.flow_state().resources.get(&id))
+                                .map(|r| r.name.clone())
+                                .unwrap_or_else(|| "Unassigned".to_string());
+                            
+                            ui.bullet_text(&format!("{} - {} ({}): {}%", 
+                                task.ticket, 
+                                if task.title.len() > 40 {
+                                    format!("{}...", task.title.chars().take(40).collect::<String>())
+                                } else {
+                                    task.title.clone()
+                                }, 
+                                assignee_name, 
+                                worklog.fraction
+                            ));
+                        }
+                    }
+                }
+            }
         }
     }
+
     fn draw_milestone(&mut self, ui: &Ui, day: &NaiveDate) {
         let today = chrono::Local::now().date_naive();
         if let Some(milestones) = self.project.flow_state().cache().date_to_milestones.get(day) {
@@ -1547,6 +1587,235 @@ impl Gui {
             ui.disabled(true, || {
                 ui.menu_item("Delete");
             });
+            if let Some(_update_task_menu) = ui.begin_menu("Update Task") {
+                let is_info_filled_in =
+                        |task_title: &str, ticket: &str, duration: f32| {
+                    !task_title.is_empty() && !ticket.is_empty() && duration > 0.0
+                };
+                if let Some(_child_window) = ui.child_window("##update_task_menu")
+                        .size(UPDATE_TASK_CHILD_WINDOW_SIZE)
+                        .begin() {
+                    let mut can_update_task = false;
+                    if ui.input_text("##ticket", &mut self.ticket_input_text_buffer)
+                            .enter_returns_true(true)
+                            .hint("Enter ticket number")
+                            .build() {
+                        can_update_task = is_info_filled_in(
+                            &self.task_title_input_text_buffer,
+                            &self.ticket_input_text_buffer,
+                            self.task_duration_days);
+                    }
+                    if ui.input_text("##task_title", &mut self.task_title_input_text_buffer)
+                            .enter_returns_true(true)
+                            .hint("Enter task title")
+                            .build() {
+                        can_update_task = is_info_filled_in(
+                            &self.task_title_input_text_buffer,
+                            &self.ticket_input_text_buffer,
+                            self.task_duration_days);
+                    }
+                    ui.slider_config("##duration_slider", 0.1, 30.0)
+                        .display_format("%.0f days")
+                        .build(&mut self.task_duration_days);
+                    ui.input_float("##duration_input", &mut self.task_duration_days)
+                        .display_format("%.2f days")
+                        .step(1.0)
+                        .build();
+                    if ui.button("Ok") {
+                        can_update_task = is_info_filled_in(
+                            &self.task_title_input_text_buffer,
+                            &self.ticket_input_text_buffer,
+                            self.task_duration_days);
+                    }
+                    if can_update_task {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::UpdateTask {
+                            timestamp: Utc::now(),
+                            id: *task_id,
+                            ticket: self.ticket_input_text_buffer.clone(),
+                            title: self.task_title_input_text_buffer.clone(),
+                            duration: TaskDuration {
+                                days: self.task_duration_days as u64,
+                                fraction: (self.task_duration_days.fract() * 100.0) as u8,
+                            },
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                        self.task_title_input_text_buffer.clear();
+                    }
+                }
+            }
+            if ui.menu_item("Open in JIRA") {
+                self.open_task_in_jira(ui, &task);
+                ui.close_current_popup();
+            }
+            ui.separator();
+            if let Some(_labels_menu) = ui.begin_menu("Labels") {
+                let labels: Vec<_> = self.project.flow_state().labels.iter().map(|(id, label)| (*id, label.clone())).collect();
+                for (label_id, label) in labels {
+                    let is_selected = task.label_ids.contains(&label_id);
+                    if ui.menu_item_config(&label.name).selected(is_selected).build() {
+                        if is_selected {
+                            self.project.invoke_command(Command::RemoveLabelFromTask {
+                                timestamp: Utc::now(),
+                                task_id: *task_id,
+                                label_name: label.name.clone(),
+                            }).unwrap_or_else(|e| {
+                                gui_log!(self, "Failed to remove label from task: {e}");
+                            });
+                        } else {
+                            self.project.invoke_command(Command::AddLabelToTask {
+                                timestamp: Utc::now(),
+                                task_id: *task_id,
+                                label_name: label.name.clone(),
+                            }).unwrap_or_else(|e| {
+                                gui_log!(self, "Failed to add label to task: {e}");
+                            });
+                        }
+                    }
+                }
+                ui.separator();
+                if let Some(_new_label_menu) = ui.begin_menu("New Label") {
+                    if let Some(_child_window) = ui.child_window("##new_label")
+                            .size(CREATE_LABEL_CHILD_WINDOW_SIZE)
+                            .begin() {
+                        ui.input_text("##label_name", &mut self.label_input_text_buffer)
+                            .hint("Enter label name")
+                            .build();
+                        if ui.button("Ok") && !self.label_input_text_buffer.is_empty() {
+                            self.project.invoke_command(Command::CompoundCommand {
+                                timestamp: Utc::now(),
+                                commands: vec![
+                                    Command::CreateLabel {
+                                        timestamp: Utc::now(),
+                                        name: self.label_input_text_buffer.clone(),
+                                    },
+                                    Command::AddLabelToTask {
+                                        timestamp: Utc::now(),
+                                        task_id: *task_id,
+                                        label_name: self.label_input_text_buffer.clone(),
+                                    }
+                                ]
+                            }).unwrap_or_else(|e| {
+                                gui_log!(self, "Failed to create label and add to task: {e}");
+                            });
+                            self.label_input_text_buffer.clear();
+                        }
+                    }
+                }
+            }
+            ui.separator();
+            if let Some(_update_task_menu) = ui.begin_menu("Update Duration") {
+                if let Some(_child_window) = ui.child_window("##update_duration_menu")
+                        .size(UPDATE_TASK_CHILD_WINDOW_SIZE)
+                        .begin() {
+                    ui.slider_config("##duration", 0.0, 30.0)
+                        .display_format("%.0f days")
+                        .build(&mut self.task_duration_days);
+                    if ui.button("Ok") {
+                        ui.close_current_popup();
+                        self.project.invoke_command(Command::UpdateTask {
+                            timestamp: Utc::now(),
+                            id: *task_id,
+                            ticket: task.ticket.clone(),
+                            title: task.title.clone(),
+                            duration: TaskDuration {
+                                days: self.task_duration_days as u64,
+                                fraction: (self.task_duration_days.fract() * 100.0) as u8,
+                            },
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                    let mut new_duration_days = None;
+                    if ui.button("<<") {
+                        new_duration_days = Some(TaskDuration::zero()
+                            .max(task.duration - TaskDuration { days: 5, fraction: 0 }));
+                    }
+                    ui.same_line();
+                    if ui.button("<") {
+                        new_duration_days = Some(TaskDuration::zero()
+                            .max(task.duration - TaskDuration { days: 1, fraction: 0 }));
+                    }
+                    ui.same_line();
+                    if ui.button(">") {
+                        new_duration_days = Some(task.duration + TaskDuration { days: 1, fraction: 0 });
+                    }
+                    ui.same_line();
+                    if ui.button(">>") {
+                        new_duration_days = Some(task.duration + TaskDuration { days: 5, fraction: 0 });
+                    }
+                    if let Some(new_duration_days) = new_duration_days {
+                        self.project.invoke_command(Command::UpdateTask {
+                            timestamp: Utc::now(),
+                            id: *task_id,
+                            ticket: task.ticket.clone(),
+                            title: task.title.clone(),
+                            duration: new_duration_days,
+                        }).unwrap_or_else(|e| {
+                            eprintln!("Failed to update task: {e}");
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    fn draw_gantt_chart_resources_team_resource_task_as_watcher_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task, resource_id: &ResourceId, resource: &Resource) {
+        if let Some(_popup) = ui.begin_popup_context_item() {
+            if let Some(_assign_to_menu) = ui.begin_menu("Assign to") {
+                let mut resources: Vec<_> = self.project.flow_state().resources.values().cloned().collect();
+                resources.sort_by(|a, b| a.name.cmp(&b.name));
+                for resource in resources {
+                    if ui.menu_item(resource.name.clone()) {
+                        self.project.invoke_command(Command::AssignTask {
+                            timestamp: Utc::now(),
+                            task_id: *task_id,
+                            resource_name: resource.name,
+                        }).unwrap_or_else(|e| {
+                            gui_log!(self, "Failed to assign task to resource: {e}");
+                        });
+                    }
+                }
+            }
+            if ui.menu_item("Unwatch") {
+                self.project.invoke_command(Command::RemoveWatcher {
+                    timestamp: Utc::now(),
+                    task_id: *task_id,
+                    resource_name: resource.name.clone(),
+                }).unwrap_or_else(|e| {
+                    gui_log!(self, "Failed to unwatch task: {e}");
+                });
+                ui.close_current_popup();
+            }
+            if let Some(_watchers_menu) = ui.begin_menu("Watchers") {
+                /* list all the resources as a menu item. If the resource is already a watcher, it should be checked */
+                let mut resources: Vec<_> = self.project.flow_state().resources.values().cloned().collect();
+                resources.sort_by(|a, b| a.name.cmp(&b.name));
+                for resource in resources {
+                    let is_watching = resource.watched_tasks.contains(task_id);
+                    if ui.menu_item_config(resource.name.clone()).selected(is_watching).build() {
+                        if is_watching {
+                            self.project.invoke_command(Command::RemoveWatcher {
+                                timestamp: Utc::now(),
+                                task_id: *task_id,
+                                resource_name: resource.name.clone(),
+                            }).unwrap_or_else(|e| {
+                                gui_log!(self, "Failed to unwatch task: {e}");
+                            });
+                        } else {
+                            self.project.invoke_command(Command::AddWatcher {
+                                timestamp: Utc::now(),
+                                task_id: *task_id,
+                                resource_name: resource.name.clone(),
+                            }).unwrap_or_else(|e| {
+                                gui_log!(self, "Failed to watch task: {e}");
+                            });
+                        }
+                    }
+                }
+            }
+            ui.separator();
             if let Some(_update_task_menu) = ui.begin_menu("Update Task") {
                 let is_info_filled_in =
                         |task_title: &str, ticket: &str, duration: f32| {
