@@ -656,6 +656,12 @@ impl Gui {
         let expand_resource = unsafe {
             let bold = self.bold_font.borrow().unwrap();
             let _h = ui.push_font(bold);
+            let bg_color = if self.drawing_aids.row_counter % 2 == 0 {
+                ui.style_color(StyleColor::TableRowBg)
+            } else {
+                ui.style_color(StyleColor::TableRowBgAlt)
+            };
+            ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
             imgui::sys::igTreeNodeEx_Str(resource_name_cstr.as_ptr(), flags as i32)
         };
         self.draw_gantt_chart_resources_team_resource_popup(ui, resource_id, &resource);
@@ -713,6 +719,12 @@ impl Gui {
         let task_title_cstr = std::ffi::CString::new(format!("{} - {}", task.ticket, task.title)).unwrap();
         let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_Bullet;
         let expand_task = unsafe {
+            let bg_color = if self.drawing_aids.row_counter % 2 == 0 {
+                ui.style_color(StyleColor::TableRowBg)
+            } else {
+                ui.style_color(StyleColor::TableRowBgAlt)
+            };
+            ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
             imgui::sys::igTreeNodeEx_Str(task_title_cstr.as_ptr(), flags as i32)
         };
         if ui.is_item_hovered() && ui.is_mouse_clicked(MouseButton::Middle) {
@@ -844,7 +856,23 @@ impl Gui {
     }
 
     fn draw_gantt_chart_tasks_contents(&mut self, ui: &Ui) {
-    
+        let task_ids: Vec<TaskId> = self.project.flow_state().tasks.keys().cloned().collect();
+        for (i, task_id) in task_ids.iter().enumerate() {
+            let task = self.project.flow_state().tasks.get(task_id).unwrap().clone();
+            let should_show = (
+                self.filtered_labels.is_empty()
+                    || self.filtered_labels.iter().all(|label_id| task.label_ids.contains(label_id))
+            ) && (
+                self.find_input_buffer.is_empty()
+                    || task.title.contains(&self.find_input_buffer)
+                    || task.ticket.contains(&self.find_input_buffer)
+            );
+            if should_show {
+                self.drawing_aids.row_counter = i;
+                self.draw_gantt_chart_tasks_task(ui, task_id, &task);
+            }
+        }
+
     }
 
     fn draw_cell_background(&mut self, ui: &Ui, day: &NaiveDate) {
@@ -2566,6 +2594,88 @@ impl Gui {
                     }
                 }
             }
+        }
+    }
+
+    fn draw_gantt_chart_tasks_task(&mut self, ui: &Ui, task_id: &TaskId, task: &Task) {
+        ui.table_next_row();
+        ui.table_next_column();
+
+        let _task_token_id = ui.push_id_int(*task_id as i32);
+        let task_repr = format!("{} - {}", task.ticket, task.title);
+        let task_repr_cstr = std::ffi::CString::new(task_repr.clone()).unwrap();
+        let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_DefaultOpen;
+        let expand_task = unsafe {
+            let bold = self.bold_font.borrow().unwrap();
+            let _h = ui.push_font(bold);
+            let bg_color = if self.drawing_aids.row_counter % 2 == 0 {
+                ui.style_color(StyleColor::TableRowBg)
+            } else {
+                ui.style_color(StyleColor::TableRowBgAlt)
+            };
+            ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
+            imgui::sys::igTreeNodeEx_Str(task_repr_cstr.as_ptr(), flags as i32)
+        };
+        //self.draw_gantt_chart_tasks_task_popup(ui, task_id, task);
+
+        for i in 1..=self.project.flow_state().cache().num_days() {
+            if ui.table_next_column() {
+                let day = self.project.flow_state().cache().day(i - 1);
+                self.draw_cell_background(ui, &day);
+                self.draw_milestone(ui, &day);
+            }
+        }
+
+        if expand_task {
+            let resource_data: Vec<(ResourceId, Resource)> = self.project.flow_state().worklogs.get(task_id)
+                .map(|worklogs| {
+                    worklogs.keys()
+                        .filter_map(|&resource_id| {
+                            self.project.flow_state().resources.get(&resource_id)
+                                .map(|resource| (resource_id, resource.clone()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_else(Vec::new);
+            for (resource_id, resource) in resource_data {
+                self.draw_gantt_chart_tasks_task_resource(ui, task_id, task, &resource_id, &resource);
+            }
+            unsafe {imgui::sys::igTreePop();}
+        }
+    }
+
+    fn draw_gantt_chart_tasks_task_resource(&mut self, ui: &Ui, task_id: &TaskId, task: &Task, resource_id: &ResourceId, resource: &Resource) {
+        ui.table_next_row();
+        ui.table_next_column();
+        
+        let resource = self.project.flow_state().resources.get(resource_id).unwrap().clone();
+        let resource_name_cstr = std::ffi::CString::new(resource.name.clone()).unwrap();
+        let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_DefaultOpen;
+        let expand_resource = unsafe {
+            let bg_color = if self.drawing_aids.row_counter % 2 == 0 {
+                ui.style_color(StyleColor::TableRowBg)
+            } else {
+                ui.style_color(StyleColor::TableRowBgAlt)
+            };
+            ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
+            imgui::sys::igTreeNodeEx_Str(resource_name_cstr.as_ptr(), flags as i32)
+        };
+        self.draw_gantt_chart_resources_team_resource_popup(ui, resource_id, &resource);
+
+        for i in 1..=self.project.flow_state().cache().num_days() {
+            if ui.table_next_column() {
+                let _id = ui.push_id_usize(i);
+                let day = self.project.flow_state().cache().day(i - 1);
+                self.draw_cell_background(ui, &day);
+                self.draw_absence(ui, &day, resource_id, &resource);
+                self.draw_worklog(ui, &day, resource_id, &resource, task_id, task);
+                self.draw_milestone(ui, &day);
+                ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
+                self.draw_gantt_chart_resources_team_resource_content_popup(ui, resource_id, &resource, &day);
+            }
+        }
+        if expand_resource {
+            unsafe {imgui::sys::igTreePop();}
         }
     }
 
