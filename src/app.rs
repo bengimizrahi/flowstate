@@ -354,7 +354,7 @@ pub struct Task {
     pub duration: TaskDuration,
     pub label_ids: BTreeSet<LabelId>,
     pub assignee: Option<ResourceId>,
-    watchers: BTreeSet<ResourceId>,
+    pub watchers: BTreeSet<ResourceId>,
 }
 
 impl Task {
