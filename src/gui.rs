@@ -8,7 +8,7 @@ use imgui::sys::ImVec2;
 use imgui::*;
 use chrono::{Utc, Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
-
+use std::collections::BTreeMap;
 
 const NEW_PROJECT_CHILD_WINDOW_SIZE: [f32; 2] = [240.0, 30.0];
 const CREATE_TEAM_CHILD_WINDOW_SIZE: [f32; 2] = NEW_PROJECT_CHILD_WINDOW_SIZE;
@@ -2627,28 +2627,41 @@ impl Gui {
         }
 
         if expand_task {
-            let resource_data: Vec<(ResourceId, Resource)> = self.project.flow_state().worklogs.get(task_id)
+            let mut resource_data: BTreeMap<ResourceId, RoleOfResourceInTask> = self.project.flow_state().worklogs.get(task_id)
                 .map(|worklogs| {
                     worklogs.keys()
                         .filter_map(|&resource_id| {
                             self.project.flow_state().resources.get(&resource_id)
-                                .map(|resource| (resource_id, resource.clone()))
+                                .map(|resource| (resource_id, RoleOfResourceInTask::WorklogContributor))
                         })
                         .collect()
                 })
-                .unwrap_or_else(Vec::new);
-            for (resource_id, resource) in resource_data {
-                self.draw_gantt_chart_tasks_task_resource(ui, task_id, task, &resource_id, &resource);
+                .unwrap_or_else(BTreeMap::new);
+            if let Some(assignee) = task.assignee {
+                resource_data.insert(assignee, RoleOfResourceInTask::Assignee);
+            }
+            for watcher in &task.watchers {
+                resource_data.insert(*watcher, RoleOfResourceInTask::Watcher);
+            }
+
+            let resource_entries: BTreeMap<ResourceId, (Resource, RoleOfResourceInTask)> = resource_data
+                .into_iter()
+                .filter_map(|(resource_id, role)| {
+                    self.project.flow_state().resources.get(&resource_id)
+                        .map(|resource| (resource_id, (resource.clone(), role)))
+                })
+                .collect();
+            for (resource_id, (resource, role)) in resource_entries {
+                self.draw_gantt_chart_tasks_task_resource(ui, task_id, task, &resource_id, &resource, role);
             }
             unsafe {imgui::sys::igTreePop();}
         }
     }
 
-    fn draw_gantt_chart_tasks_task_resource(&mut self, ui: &Ui, task_id: &TaskId, task: &Task, resource_id: &ResourceId, resource: &Resource) {
+    fn draw_gantt_chart_tasks_task_resource(&mut self, ui: &Ui, task_id: &TaskId, task: &Task, resource_id: &ResourceId, resource: &Resource, role: RoleOfResourceInTask) {
         ui.table_next_row();
         ui.table_next_column();
         
-        let resource = self.project.flow_state().resources.get(resource_id).unwrap().clone();
         let resource_name_cstr = std::ffi::CString::new(resource.name.clone()).unwrap();
         let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_DefaultOpen;
         let expand_resource = unsafe {
@@ -2658,7 +2671,22 @@ impl Gui {
                 ui.style_color(StyleColor::TableRowBgAlt)
             };
             ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
-            imgui::sys::igTreeNodeEx_Str(resource_name_cstr.as_ptr(), flags as i32)
+            match role {
+                RoleOfResourceInTask::Assignee => {
+                    /* make treenode look like ${resource_name} + "<-" */
+                    let resource_name_with_arrow = format!("{} <-", resource.name);
+                    let resource_name_with_arrow_cstr = std::ffi::CString::new(resource_name_with_arrow).unwrap();
+                    imgui::sys::igTreeNodeEx_Str(resource_name_with_arrow_cstr.as_ptr(), (flags | imgui::sys::ImGuiTreeNodeFlags_Leaf) as i32)
+                },
+                RoleOfResourceInTask::WorklogContributor => {
+                    imgui::sys::igTreeNodeEx_Str(resource_name_cstr.as_ptr(), flags as i32)
+                },
+                RoleOfResourceInTask::Watcher => {
+                    let disabled_color = ui.style_color(StyleColor::TextDisabled);
+                    let _style = ui.push_style_color(imgui::StyleColor::Text, disabled_color);
+                    imgui::sys::igTreeNodeEx_Str(resource_name_cstr.as_ptr(), (flags | imgui::sys::ImGuiTreeNodeFlags_Leaf) as i32)
+                },
+            }
         };
         self.draw_gantt_chart_resources_team_resource_popup(ui, resource_id, &resource);
 
@@ -2699,6 +2727,12 @@ impl Gui {
             gui_log!(self, "Failed to open JIRA URL: {}", e);
         });
     }
+}
+
+enum RoleOfResourceInTask {
+    Assignee,
+    WorklogContributor,
+    Watcher,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
