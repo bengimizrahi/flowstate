@@ -28,6 +28,8 @@ pub struct Gui {
     filtered_labels: Vec<LabelId>,
     selected_filter: Option<FilterId>,
 
+    drag_drop_task_id: Option<TaskId>,
+
     bold_font: std::rc::Rc<std::cell::RefCell<Option<FontId>>>,
     find_input_buffer: String,
     new_project_input_text_buffer: String,
@@ -77,6 +79,8 @@ impl Gui {
 
             filtered_labels: Vec::new(),
             selected_filter: None,
+
+            drag_drop_task_id: None,
 
             bold_font: std::rc::Rc::new(std::cell::RefCell::new(None)),
             find_input_buffer: String::new(),
@@ -727,6 +731,19 @@ impl Gui {
             ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
             imgui::sys::igTreeNodeEx_Str(task_title_cstr.as_ptr(), flags as i32)
         };
+        if ui.drag_drop_source_config("DND_TASK").begin().is_some() {
+            self.drag_drop_task_id = Some(*task_id);
+        }
+        if let Some(target) = ui.drag_drop_target() {
+            if target
+                .accept_payload_empty("DND_TASK", DragDropFlags::empty())
+                .is_some()
+            {
+                let msg = self.drag_drop_task_id.unwrap();
+                println!("Dropped task {msg} on task {}", *task_id);
+            }
+            target.pop();
+        }
         if ui.is_item_hovered() && ui.is_mouse_clicked(MouseButton::Middle) {
             self.open_task_in_jira(ui, &task);
         }
