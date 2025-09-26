@@ -2366,6 +2366,34 @@ impl Gui {
                     }
                 }
             }
+            if let Some(_watchers_menu) = ui.begin_menu("Watchers") {
+                /* list all the resources as a menu item. If the resource is already a watcher, it should be checked */
+                let mut resources: Vec<_> = self.project.flow_state().resources.values().cloned().collect();
+                resources.sort_by(|a, b| a.name.cmp(&b.name));
+                for resource in resources {
+                    let is_watching = resource.watched_tasks.contains(task_id);
+                    if ui.menu_item_config(resource.name.clone()).selected(is_watching).build() {
+                        if is_watching {
+                            self.project.invoke_command(Command::RemoveWatcher {
+                                timestamp: Utc::now(),
+                                task_id: *task_id,
+                                resource_name: resource.name.clone(),
+                            }).unwrap_or_else(|e| {
+                                gui_log!(self, "Failed to unwatch task: {e}");
+                            });
+                        } else {
+                            self.project.invoke_command(Command::AddWatcher {
+                                timestamp: Utc::now(),
+                                task_id: *task_id,
+                                resource_name: resource.name.clone(),
+                            }).unwrap_or_else(|e| {
+                                gui_log!(self, "Failed to watch task: {e}");
+                            });
+                        }
+                    }
+                }
+            }
+            ui.separator();
             if ui.menu_item("Delete") {
                 self.project.invoke_command(Command::DeleteTask {
                     timestamp: Utc::now(),
@@ -2693,13 +2721,11 @@ impl Gui {
             ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
             match role {
                 RoleOfResourceInTask::Assignee => {
-                    /* make treenode look like ${resource_name} + "<-" */
-                    let resource_name_with_arrow = format!("{} <-", resource.name);
-                    let resource_name_with_arrow_cstr = std::ffi::CString::new(resource_name_with_arrow).unwrap();
-                    imgui::sys::igTreeNodeEx_Str(resource_name_with_arrow_cstr.as_ptr(), (flags | imgui::sys::ImGuiTreeNodeFlags_Leaf) as i32)
+                    let resource_name_cstr = std::ffi::CString::new(resource.name.clone()).unwrap();
+                    imgui::sys::igTreeNodeEx_Str(resource_name_cstr.as_ptr(), (flags | imgui::sys::ImGuiTreeNodeFlags_Bullet) as i32)
                 },
                 RoleOfResourceInTask::WorklogContributor => {
-                    imgui::sys::igTreeNodeEx_Str(resource_name_cstr.as_ptr(), flags as i32)
+                    imgui::sys::igTreeNodeEx_Str(resource_name_cstr.as_ptr(), (flags | imgui::sys::ImGuiTreeNodeFlags_Leaf) as i32)
                 },
                 RoleOfResourceInTask::Watcher => {
                     let disabled_color = ui.style_color(StyleColor::TextDisabled);
