@@ -1,2 +1,4 @@
 /target
-database.yaml
+.DS_Store
+*.yaml
+*.ini
