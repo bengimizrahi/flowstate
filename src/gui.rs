@@ -743,6 +743,28 @@ impl Gui {
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
                 self.draw_gantt_chart_resources_team_resource_task_content_popup(ui, resource_id, &resource, task_id, &task, &day);
+                if ui.is_item_hovered() {
+                    let absence = self.project.flow_state().cache().resource_absence_rendering.get(resource_id)
+                            .and_then(|r| r.get(&day));
+                    let worklog = self.project.flow_state().worklogs.get(&task_id)
+                            .and_then(|r| r.get(&resource_id))
+                            .and_then(|r| r.get(&day));
+                    let alloc = self.project.flow_state().cache().task_alloc_rendering.get(task_id)
+                            .and_then(|r| r.get(&resource_id))
+                            .and_then(|r| r.get(&day));
+                    if absence.is_some() || worklog.is_some() || alloc.is_some() {
+                        let _tooltip = ui.begin_tooltip();
+                        if let Some(absence) = absence {
+                            ui.bullet_text(format!("Absence: {}%", absence));
+                        }
+                        if let Some(worklog) = worklog {
+                            ui.bullet_text(format!("Worklog: {}%", worklog.fraction));
+                        }
+                        if let Some(alloc) = alloc {
+                            ui.bullet_text(format!("Alloc: {}%", alloc));
+                        }
+                    }
+                }
             }
         }
 
@@ -890,7 +912,8 @@ impl Gui {
     }
 
     fn draw_absence(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, resource: &Resource) {
-        if let Some(absence) = self.project.flow_state().cache().resource_absence_rendering.get(resource_id).and_then(|r| r.get(day)) {
+        if let Some(absence) = self.project.flow_state().cache().resource_absence_rendering.get(resource_id)
+                .and_then(|r| r.get(day)) {
             let cell_height = unsafe { igGetTextLineHeight() };
             let cell_padding = unsafe { ui.style().cell_padding };
             let effective_cell_height = cell_height + 1.5 * cell_padding[1];
@@ -1165,19 +1188,16 @@ impl Gui {
 
             if ui.is_item_hovered() {
                 if let Some(_tooltip) = ui.begin_tooltip() {
-                    /* - Show a bulleted list of all the tasks contributing to the worklog (on other's tasks)
-                          - For each task t in tasks:
-                            - Skip if t is assigned to resource
-                            - If there is worklog for resource on task t on that day:
-                                - Show " - {task.ticket} - {task.title}(task.assignee): {worklog.fraction}%"
-                     */
+                    let absence = self.project.flow_state().cache().resource_absence_rendering.get(resource_id)
+                            .and_then(|r| r.get(day));
+                    if let Some(absence) = absence {
+                        ui.bullet_text(format!("Absence: {}%", absence));
+                    }
                     for (task_id, task) in &self.project.flow_state().tasks {
-                        // Skip if task is assigned to this resource
                         if task.assignee.as_ref() == Some(resource_id) {
                             continue;
                         }
                         
-                        // Check if this resource has worklog on this task on this day
                         if let Some(worklog) = self.project.flow_state().worklogs.get(task_id)
                             .and_then(|task_worklogs| task_worklogs.get(resource_id))
                             .and_then(|resource_worklogs| resource_worklogs.get(day)) {
