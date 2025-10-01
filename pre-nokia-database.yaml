@@ -1,4 +1,4 @@
-- 1487
+- 1492
 - - undo_command: !DeleteTeam
       timestamp: 2025-08-13T16:23:51.506330Z
       name: Non-RT RIC
@@ -18643,11 +18643,75 @@
       date: 2025-09-26
       resource_name: Anil Arslan
       fraction: 100
-  - undo_command: !RemoveWatcher
-      timestamp: 2025-09-26T15:23:33.534680Z
-      task_id: 13
-      resource_name: Chrysoula Boletsi
-    redo_command: !AddWatcher
-      timestamp: 2025-09-26T15:23:33.534680Z
-      task_id: 13
-      resource_name: Chrysoula Boletsi
+  - undo_command: !UpdateTask
+      timestamp: 2025-09-29T05:11:30.641711Z
+      id: 130
+      ticket: FIVEG-16715
+      title: tsdb-shim reports redis errors in O1 PM burst conditions
+      duration:
+        days: 1
+        fraction: 0
+    redo_command: !UpdateTask
+      timestamp: 2025-09-29T05:11:30.641711Z
+      id: 130
+      ticket: FIVEG-16715
+      title: tsdb-shim reports redis errors in O1 PM burst conditions
+      duration:
+        days: 0
+        fraction: 0
+  - undo_command: !UpdateTask
+      timestamp: 2025-09-29T05:11:34.871506Z
+      id: 128
+      ticket: FIVEG-17773
+      title: When updating RIC_NAME, then two NearRTRICs are registered to the UI and active xapp alarm is duplicated
+      duration:
+        days: 1
+        fraction: 0
+    redo_command: !UpdateTask
+      timestamp: 2025-09-29T05:11:34.871506Z
+      id: 128
+      ticket: FIVEG-17773
+      title: When updating RIC_NAME, then two NearRTRICs are registered to the UI and active xapp alarm is duplicated
+      duration:
+        days: 0
+        fraction: 0
+  - undo_command: !UpdateTask
+      timestamp: 2025-09-29T05:11:40.217674Z
+      id: 3
+      ticket: FIVEG-15368
+      title: Vulnerability scan - Critical and High severity for SMO and RIC
+      duration:
+        days: 1
+        fraction: 0
+    redo_command: !UpdateTask
+      timestamp: 2025-09-29T05:11:40.217674Z
+      id: 3
+      ticket: FIVEG-15368
+      title: Vulnerability scan - Critical and High severity for SMO and RIC
+      duration:
+        days: 0
+        fraction: 25
+  - undo_command: !UpdateTask
+      timestamp: 2025-09-29T05:11:43.672708Z
+      id: 129
+      ticket: FIVEG-17706
+      title: '[Nightly][one-edge-cluster][support_bundle_with_xapp_console_logs]'
+      duration:
+        days: 1
+        fraction: 0
+    redo_command: !UpdateTask
+      timestamp: 2025-09-29T05:11:43.672708Z
+      id: 129
+      ticket: FIVEG-17706
+      title: '[Nightly][one-edge-cluster][support_bundle_with_xapp_console_logs]'
+      duration:
+        days: 0
+        fraction: 0
+  - undo_command: !RemoveLabelFromTask
+      timestamp: 2025-09-29T06:57:22.436127Z
+      task_id: 20
+      label_name: Open/In Progress
+    redo_command: !AddLabelToTask
+      timestamp: 2025-09-29T06:57:22.436127Z
+      task_id: 20
+      label_name: Open/In Progress
