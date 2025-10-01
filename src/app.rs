@@ -1698,3 +1698,24 @@ mod tests {
         assert_eq!(cursor.alloced_amount, TaskDuration { days: 0, fraction: 50 });
     }
 }
+
+struct TaskInspector {
+    task_id: TaskId,
+    allocations: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
+    absences: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
+    worklogs: HashMap<NaiveDate, HashMap<NaiveDate, Duration>>,
+    assignee: HashMap<NaiveDate, ResourceId>,
+}
+
+impl TaskInspector {
+    fn new(inspected_task_id: TaskId, commands: Vec<Command>) -> Self {
+        let mut flow_state = FlowState::new();
+        for cmd in &commands {
+            flow_state.execute_command_generate_inverse_and_rebuild_cache(cmd.clone()).unwrap();
+            if let Some(inspected_task) = flow_state.tasks.get(&inspected_task_id) {
+                let inspected_task_assignee = inspected_task.assignee;
+            }
+        }
+        TaskInspector { task_id: inspected_task_id, allocations: HashMap::new(), absences: HashMap::new(), worklogs: HashMap::new(), assignee: HashMap::new() }
+    }
+}
