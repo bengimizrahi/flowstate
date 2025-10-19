@@ -1435,13 +1435,13 @@ impl FlowStateCache {
                 .unwrap_or(TaskDuration { days: 0, fraction: 0 });
             let mut date = today;
             while remaining_alloc > (TaskDuration { days: 0, fraction: 0 }) {
+                while date.weekday() == chrono::Weekday::Sat || date.weekday() == chrono::Weekday::Sun {
+                    date += Duration::days(1);
+                }
                 let work_to_allocate = remaining_alloc.min(TaskDuration { days: 1, fraction: 0 });
                 unassigned_task_alloc_rendering.entry(*task_id).or_default().insert(date, work_to_allocate.into());
                 remaining_alloc -= work_to_allocate;
                 date += Duration::days(1);
-                while date.weekday() == chrono::Weekday::Sat || date.weekday() == chrono::Weekday::Sun {
-                    date += Duration::days(1);
-                }
             }
             most_farther_alloc_date = most_farther_alloc_date.max(date);
         }
