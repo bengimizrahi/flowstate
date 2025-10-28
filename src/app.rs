@@ -267,6 +267,7 @@ pub type FilterId = u64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Absence {
+    create_timestamp: DateTime<Utc>,
     start_date: NaiveDate,
     duration: TaskDuration,
 }
@@ -312,6 +313,7 @@ impl Absence {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Resource {
+    create_timestamp: DateTime<Utc>,
     pub name: ResourceName,
     pub team_id: TeamId,
     pub assigned_tasks: Vec<TaskId>,
@@ -320,8 +322,9 @@ pub struct Resource {
 }
 
 impl Resource {
-    fn new(name: ResourceName, team_id: TeamId) -> Self {
+    fn new(create_timestamp: DateTime<Utc>, name: ResourceName, team_id: TeamId) -> Self {
         Self {
+            create_timestamp,
             name,
             team_id,
             assigned_tasks: Vec::new(),
@@ -333,13 +336,15 @@ impl Resource {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Team {
+    create_timestamp: DateTime<Utc>,
     pub name: TeamName,
     pub resources: BTreeSet<ResourceId>,
 }
 
 impl Team {
-    fn new(name: TeamName) -> Self {
+    fn new(create_timestamp: DateTime<Utc>, name: TeamName) -> Self {
         Self {
+            create_timestamp,
             name,
             resources: BTreeSet::new(),
         }
@@ -349,6 +354,7 @@ impl Team {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     id: TaskId,
+    create_timestamp: DateTime<Utc>,
     pub ticket: String,
     pub title: String,
     pub duration: TaskDuration,
@@ -358,9 +364,10 @@ pub struct Task {
 }
 
 impl Task {
-    fn new(_timestamp: DateTime<Utc>, id: TaskId, ticket: String, title: String, duration: TaskDuration) -> Self {
+    fn new(create_timestamp: DateTime<Utc>, id: TaskId, ticket: String, title: String, duration: TaskDuration) -> Self {
         Self {
             id,
+            create_timestamp,
             ticket,
             title,
             duration,
@@ -385,6 +392,7 @@ pub struct Filter {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Worklog {
+    create_timestamp: DateTime<Utc>,
     task_id: TaskId,
     date: NaiveDate,
     resource_id: ResourceId,
@@ -555,7 +563,7 @@ impl FlowState {
                 }
 
                 let team_id = self.next_team_id();
-                self.teams.insert(team_id, Team::new(name.clone()));
+                self.teams.insert(team_id, Team::new(timestamp, name.clone()));
                 Ok(Command::DeleteTeam { timestamp, name })
             }
             Command::RenameTeam { timestamp, old_name, new_name } => {
@@ -602,7 +610,7 @@ impl FlowState {
                 }
 
                 let resource_id = self.next_resource_id();
-                self.resources.insert(resource_id, Resource::new(name.clone(), team_id.unwrap()));
+                self.resources.insert(resource_id, Resource::new(timestamp, name.clone(), team_id.unwrap()));
 
                 if let Some(team) = self.teams.get_mut(&team_id.unwrap()) {
                     team.resources.insert(resource_id);
@@ -1079,6 +1087,7 @@ impl FlowState {
                 }
 
                 let worklog = Worklog {
+                    create_timestamp: DateTime::from_naive_utc_and_offset(date.and_hms_opt(0, 0, 0).unwrap(), Utc),
                     task_id,
                     date,
                     resource_id,
@@ -1136,6 +1145,7 @@ impl FlowState {
 
                 let resource_id = resource_id.unwrap();
                 let absence = Absence {
+                    create_timestamp: timestamp,
                     start_date,
                     duration: days,
                 };
@@ -1681,10 +1691,12 @@ mod tests {
     #[test]
     fn test_absence_intersections() {
         let a1 = Absence {
+            create_timestamp: Utc::now(),
             start_date: NaiveDate::from_ymd_opt(2025, 8, 22).unwrap(),
             duration: TaskDuration { days: 1, fraction: 50 },
         };
         let a2 = Absence {
+            create_timestamp: Utc::now(),
             start_date: NaiveDate::from_ymd_opt(2025, 8, 25).unwrap(),
             duration: TaskDuration { days: 0, fraction: 0 },
         };
