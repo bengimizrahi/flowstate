@@ -87,7 +87,7 @@ impl Gui {
             new_project_input_text_buffer: String::new(),
             team_input_text_buffer: String::new(),
             resource_input_text_buffer: String::new(),
-            ticket_input_text_buffer: "FIVEG-".to_string(),
+            ticket_input_text_buffer: "FCA_NRTRIC-".to_string(),
             task_title_input_text_buffer: String::new(),
             task_duration_days: 1.0,
             absence_duration_days: 0.0,
@@ -2785,7 +2785,7 @@ impl Gui {
     }
 
     fn open_task_in_jira(&mut self, ui:& Ui, task: &Task) {
-        let jira_url = format!("https://juniper-cto.atlassian.net/browse/{}", task.ticket);
+        let jira_url = format!("https://jiradc.ext.net.nokia.com/browse/{}", task.ticket);
         webbrowser::open(&jira_url).unwrap_or_else(|e| {
             gui_log!(self, "Failed to open JIRA URL: {}", e);
         });
