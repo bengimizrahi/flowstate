@@ -102,154 +102,130 @@ impl TaskDuration {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Command {
+pub struct Command {
+    pub timestamp: DateTime<Utc>,
+    pub details: CommandDetails,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CommandDetails {
     NoOp,
     CreateTeam{
-        timestamp: DateTime<Utc>,
         name: TeamName,
     },
     RenameTeam{
-        timestamp: DateTime<Utc>,
         old_name: TeamName,
         new_name: TeamName,
     },
     DeleteTeam{
-        timestamp: DateTime<Utc>,
         name: TeamName,
     },
     CreateResource{
-        timestamp: DateTime<Utc>,
         name: ResourceName,
         team_name: TeamName,
     },
     RenameResource{
-        timestamp: DateTime<Utc>,
         old_name: ResourceName,
         new_name: ResourceName,
     },
     SwitchTeam{
-        timestamp: DateTime<Utc>,
         resource_name: ResourceName,
         new_team_name: TeamName,
     },
     DeleteResource{
-        timestamp: DateTime<Utc>,
         name: ResourceName,
     },
     CreateTask{
-        timestamp: DateTime<Utc>,
         id: TaskId,
         ticket: String,
         title: String,
         duration: TaskDuration,
     },
     UpdateTask{
-        timestamp: DateTime<Utc>,
         id: TaskId,
         ticket: String,
         title: String,
         duration: TaskDuration,
     },
     DeleteTask{
-        timestamp: DateTime<Utc>,
         id: TaskId,
     },
     PrioritizeTask{
-        timestamp: DateTime<Utc>,
         task_id: TaskId,
         to_top: bool,
     },
     DeprioritizeTask{
-        timestamp: DateTime<Utc>,
         task_id: TaskId,
         to_bottom: bool,
     },
     ChangeTaskPriority{
-        timestamp: DateTime<Utc>,
         task_id: TaskId,
         delta: i32,
     },
     AssignTask{
-        timestamp: DateTime<Utc>,
         task_id: TaskId,
         resource_name: ResourceName,
     },
     UnassignTask{
-        timestamp: DateTime<Utc>,
         task_id: TaskId,
     },
     AddWatcher{
-        timestamp: DateTime<Utc>,
         task_id: TaskId,
         resource_name: ResourceName,
     },
     RemoveWatcher{
-        timestamp: DateTime<Utc>,
         task_id: TaskId,
         resource_name: ResourceName,
     },
     CreateLabel{
-        timestamp: DateTime<Utc>,
         name: String,
     },
     RenameLabel{
-        timestamp: DateTime<Utc>,
         old_name: String,
         new_name: String,
     },
     DeleteLabel{
-        timestamp: DateTime<Utc>,
         name: String,
     },
     AddLabelToTask{
-        timestamp: DateTime<Utc>,
         task_id: TaskId,
         label_name: LabelName,
     },
     RemoveLabelFromTask{
-        timestamp: DateTime<Utc>,
         task_id: TaskId,
         label_name: LabelName,
     },
     CreateModifyFilter{
-        timestamp: DateTime<Utc>,
         name: FilterName,
         labels: Vec<LabelName>,
         is_favorite: bool,
     },
     RenameFilter{
-        timestamp: DateTime<Utc>,
         old_name: FilterName,
         new_name: FilterName,
     },
     DeleteFilter{
-        timestamp: DateTime<Utc>,
         name: FilterName,
     },
     SetWorklog{
-        timestamp: DateTime<Utc>,
         task_id: TaskId,
         date: NaiveDate,
         resource_name: ResourceName,
         fraction: Fraction,
     },
     SetAbsence{
-        timestamp: DateTime<Utc>,
         resource_name: ResourceName,
         start_date: NaiveDate,
         days: TaskDuration,
     },
     AddMilestone{
-        timestamp: DateTime<Utc>,
         title: String,
         date: NaiveDate,
     },
     RemoveMilestone{
-        timestamp: DateTime<Utc>,
         title: String,
     },
     CompoundCommand{
-        timestamp: DateTime<Utc>,
         commands: Vec<Command>,
     },
 }
@@ -555,18 +531,19 @@ impl FlowState {
     }
 
     fn execute_command_and_generate_inverse(&mut self, command: Command) -> Result<Command, String> {
-        match command {
-            Command::NoOp => Ok(Command::NoOp),
-            Command::CreateTeam { timestamp, name} => {
+        let timestamp = command.timestamp;
+        match command.details {
+            CommandDetails::NoOp => Ok(Command{timestamp, details: CommandDetails::NoOp}),
+            CommandDetails::CreateTeam { name} => {
                 if self.teams.values().any(|team| team.name == name) {
                     return Err(format!("A team with the name '{}' already exists", name));
                 }
 
                 let team_id = self.next_team_id();
                 self.teams.insert(team_id, Team::new(timestamp, name.clone()));
-                Ok(Command::DeleteTeam { timestamp, name })
+                Ok(Command {timestamp, details: CommandDetails::DeleteTeam { name }})
             }
-            Command::RenameTeam { timestamp, old_name, new_name } => {
+            CommandDetails::RenameTeam { old_name, new_name } => {
                 let team_id = self.teams.iter()
                     .find(|(_, team)| team.name == old_name)
                     .map(|(id, _)| *id);
@@ -582,9 +559,9 @@ impl FlowState {
                 if let Some(team) = self.teams.get_mut(&team_id) {
                     team.name = new_name.clone();
                 }
-                Ok(Command::RenameTeam { timestamp, old_name: new_name, new_name: old_name })
+                Ok(Command {timestamp, details: CommandDetails::RenameTeam { old_name: new_name, new_name: old_name }})
             }
-            Command::DeleteTeam { timestamp, name } => {
+            CommandDetails::DeleteTeam { name } => {
                 let team_id = self.teams.iter()
                     .find(|(_, team)| team.name == name)
                     .map(|(id, _)| *id);
@@ -594,9 +571,9 @@ impl FlowState {
                 } else {
                     return Err(format!("No team found with the name '{}'", name));
                 }
-                Ok(Command::CreateTeam { timestamp, name })
+                Ok(Command { timestamp, details: CommandDetails::CreateTeam { name } })
             }
-            Command::CreateResource { timestamp, name, team_name } => {
+            CommandDetails::CreateResource { name, team_name } => {
                 if self.resources.values().any(|res| res.name == name) {
                     return Err(format!("A resource with the name '{}' already exists", name));
                 }
@@ -615,9 +592,9 @@ impl FlowState {
                 if let Some(team) = self.teams.get_mut(&team_id.unwrap()) {
                     team.resources.insert(resource_id);
                 }
-                Ok(Command::DeleteResource { timestamp, name })
+                Ok(Command { timestamp, details: CommandDetails::DeleteResource { name } })
             }
-            Command::RenameResource { timestamp, old_name, new_name } => {
+            CommandDetails::RenameResource { old_name, new_name } => {
                 let resource_id = self.resources.iter()
                     .find(|(_, res)| res.name == old_name)
                     .map(|(id, _)| *id);
@@ -633,9 +610,9 @@ impl FlowState {
                 if let Some(resource) = self.resources.get_mut(&resource_id) {
                     resource.name = new_name.clone();
                 }
-                Ok(Command::RenameResource { timestamp, old_name: new_name, new_name: old_name })
+                Ok(Command { timestamp, details: CommandDetails::RenameResource { old_name: new_name, new_name: old_name } })
             }
-            Command::SwitchTeam { timestamp, resource_name, new_team_name } => {
+            CommandDetails::SwitchTeam { resource_name, new_team_name } => {
                 let resource_id = self.resources.iter()
                     .find(|(_, res)| res.name == resource_name)
                     .map(|(id, _)| *id);
@@ -674,12 +651,12 @@ impl FlowState {
                     if let Some(resource) = self.resources.get_mut(&resource_id) {
                         resource.team_id = new_team_id;
                     }
-                    Ok(Command::SwitchTeam { timestamp, resource_name, new_team_name: old_team_name })
+                    Ok(Command { timestamp, details: CommandDetails::SwitchTeam { resource_name, new_team_name: old_team_name } })
                 } else {
                     Err("Resource has no current team".to_string())
                 }
             }
-            Command::DeleteResource { timestamp, name } => {
+            CommandDetails::DeleteResource { name } => {
                 let resource_id = self.resources.iter()
                     .find(|(_, res)| res.name == name)
                     .map(|(id, _)| *id);
@@ -703,11 +680,10 @@ impl FlowState {
                             self.teams.get_mut(&resource.team_id)
                                 .map(|team| {
                                     team.resources.remove(&resource_id);
-                                    Command::CreateResource { 
-                                        timestamp, 
-                                        name: resource.name, 
-                                        team_name: team.name.clone() 
-                                    }
+                                    Command { timestamp, details: CommandDetails::CreateResource {
+                                        name: resource.name,
+                                        team_name: team.name.clone()
+                                    }}
                                 })
                         })
                         .ok_or_else(|| format!("Failed to create resource '{}'", name))
@@ -715,12 +691,12 @@ impl FlowState {
                     return Err(format!("No resource found with the name '{}'", name));
                 }
             },
-            Command::CreateTask { timestamp, id, ticket, title, duration } => {
+            CommandDetails::CreateTask { id, ticket, title, duration } => {
                 let task = Task::new(timestamp, id, ticket, title, duration);
                 self.tasks.insert(id, task);
-                Ok(Command::DeleteTask { timestamp, id })
+                Ok(Command { timestamp, details: CommandDetails::DeleteTask { id } })
             }
-            Command::UpdateTask { timestamp, id, ticket, title, duration } => {
+            CommandDetails::UpdateTask { id, ticket, title, duration } => {
                 if let Some(task) = self.tasks.get_mut(&id) {
                     let original_ticket = task.ticket.clone();
                     let original_title = task.title.clone();
@@ -729,19 +705,18 @@ impl FlowState {
                     task.ticket = ticket;
                     task.title = title;
                     task.duration = duration;
-                    
-                    Ok(Command::UpdateTask {
-                        timestamp,
+
+                    Ok(Command { timestamp, details: CommandDetails::UpdateTask {
                         id,
                         ticket: original_ticket,
                         title: original_title,
                         duration: original_duration,
-                    })
+                    }})
                 } else {
                     return Err(format!("Task with id {} not found", id));
                 }
             }
-            Command::DeleteTask { timestamp, id } => {
+            CommandDetails::DeleteTask { id } => {
                 if let Some(task) = self.tasks.get(&id) {
                     if task.assignee.is_some() {
                         return Err(format!("Task with id {} is assigned to a resource and cannot be deleted", id));
@@ -760,27 +735,26 @@ impl FlowState {
                     let duration = task.duration.clone();
                     
                     self.tasks.remove(&id);
-                    Ok(Command::CreateTask {
-                        timestamp,
+                    Ok(Command { timestamp, details: CommandDetails::CreateTask {
                         id,
                         ticket,
                         title,
                         duration,
-                    })
+                    }})
                 } else {
                     return Err(format!("Task with id {} not found", id));
                 }
             }
-            Command::PrioritizeTask { timestamp, task_id, to_top } => {
+            CommandDetails::PrioritizeTask { task_id, to_top } => {
                 if let Some(task) = self.tasks.get(&task_id) {
                     if let Some(assignee_id) = task.assignee {
                         if let Some(resource) = self.resources.get_mut(&assignee_id) {
                             let pos = resource.assigned_tasks.iter().position(|&id| id == task_id);
                             if let Some(pos) = pos {
                                 if to_top {
-                                    self.execute_command_and_generate_inverse(Command::ChangeTaskPriority { timestamp, task_id, delta: (-(pos as i32)) })
+                                    self.execute_command_and_generate_inverse(Command { timestamp, details: CommandDetails::ChangeTaskPriority { task_id, delta: (-(pos as i32)) } })
                                 } else {
-                                    self.execute_command_and_generate_inverse(Command::ChangeTaskPriority { timestamp, task_id, delta: if pos > 0 {-1} else {0}} )
+                                    self.execute_command_and_generate_inverse(Command { timestamp, details: CommandDetails::ChangeTaskPriority { task_id, delta: if pos > 0 {-1} else {0} } })
                                 }
                             } else {
                                 Err(format!("Task with id {} is not assigned to any resource", task_id))
@@ -795,7 +769,7 @@ impl FlowState {
                     Err(format!("Task with id {} not found", task_id))
                 }
             }
-            Command::DeprioritizeTask { timestamp, task_id, to_bottom} => {
+            CommandDetails::DeprioritizeTask { task_id, to_bottom} => {
                 if let Some(task) = self.tasks.get(&task_id) {
                     if let Some(assignee_id) = task.assignee {
                         if let Some(resource) = self.resources.get_mut(&assignee_id) {
@@ -803,11 +777,11 @@ impl FlowState {
                             if let Some(pos) = pos {
                                 if to_bottom {
                                     let delta = (resource.assigned_tasks.len() - 1 - pos) as i32;
-                                    self.execute_command_and_generate_inverse(Command::ChangeTaskPriority { timestamp, task_id, delta })
+                                    self.execute_command_and_generate_inverse(Command { timestamp, details: CommandDetails::ChangeTaskPriority { task_id, delta } })
                                 } else if pos < resource.assigned_tasks.len() - 1 {
-                                    self.execute_command_and_generate_inverse(Command::ChangeTaskPriority { timestamp, task_id, delta: 1 })
+                                    self.execute_command_and_generate_inverse(Command { timestamp, details: CommandDetails::ChangeTaskPriority { task_id, delta: 1 } })
                                 } else {
-                                    self.execute_command_and_generate_inverse(Command::ChangeTaskPriority { timestamp, task_id, delta: 0 })
+                                    self.execute_command_and_generate_inverse(Command { timestamp, details: CommandDetails::ChangeTaskPriority { task_id, delta: 0 } })
                                 }
                             } else {
                                 Err(format!("Task with id {} is not assigned to any resource", task_id))
@@ -822,7 +796,7 @@ impl FlowState {
                     Err(format!("Task with id {} not found", task_id))
                 }
             }
-            Command::ChangeTaskPriority { timestamp, task_id, delta } => {
+            CommandDetails::ChangeTaskPriority { task_id, delta } => {
                 if let Some(task) = self.tasks.get(&task_id) {
                     if let Some(assignee_id) = task.assignee {
                         if let Some(resource) = self.resources.get_mut(&assignee_id) {
@@ -835,7 +809,7 @@ impl FlowState {
                                 let new_pos = new_pos as usize;
                                 resource.assigned_tasks.remove(pos);
                                 resource.assigned_tasks.insert(new_pos, task_id);
-                                Ok(Command::ChangeTaskPriority { timestamp, task_id, delta: -delta })
+                                Ok(Command { timestamp, details: CommandDetails::ChangeTaskPriority { task_id, delta: -delta } })
                             } else {
                                 Err(format!("Task with id {} is not assigned to any resource", task_id))
                             }
@@ -849,7 +823,7 @@ impl FlowState {
                     Err(format!("Task with id {} not found", task_id))
                 }
             }
-            Command::AssignTask { timestamp, task_id, resource_name } => {
+            CommandDetails::AssignTask { task_id, resource_name } => {
                 let resource_id = self.resources.iter()
                     .find(|(_, res)| res.name == resource_name)
                     .map(|(id, _)| *id);
@@ -873,21 +847,21 @@ impl FlowState {
                             if let Some(resource) = self.resources.get_mut(&resource_id) {
                                 resource.assigned_tasks.insert(0, task_id);
                             }
-                            Ok(Command::AssignTask { timestamp, task_id, resource_name: old_assignee_name })
+                            Ok(Command { timestamp, details: CommandDetails::AssignTask { task_id, resource_name: old_assignee_name } })
                         }
                         None => {
                             task.assignee = Some(resource_id);
                             if let Some(resource) = self.resources.get_mut(&resource_id) {
                                 resource.assigned_tasks.insert(0, task_id);
                             }
-                            Ok(Command::UnassignTask { timestamp, task_id })
+                            Ok(Command { timestamp, details: CommandDetails::UnassignTask { task_id } })
                         }
                     }
                 } else {
                     return Err(format!("Task with id {} not found", task_id));
                 }
             }
-            Command::UnassignTask { timestamp, task_id } => {
+            CommandDetails::UnassignTask { task_id } => {
                 if let Some(task) = self.tasks.get_mut(&task_id) {
                     if let Some(old_assignee_id) = task.assignee.clone() {
                         if let Some(old_assignee_name) = self.resources.get(&old_assignee_id)
@@ -896,7 +870,7 @@ impl FlowState {
                                 if let Some(resource) = self.resources.get_mut(&old_assignee_id) {
                                     resource.assigned_tasks.retain(|&x| x != task_id);
                                 }
-                                Ok(Command::AssignTask { timestamp, task_id, resource_name: old_assignee_name })
+                                Ok(Command { timestamp, details: CommandDetails::AssignTask { task_id, resource_name: old_assignee_name } })
                             } else {
                                 Err(format!("Resource with id {} not found", old_assignee_id))
                             }
@@ -907,7 +881,7 @@ impl FlowState {
                     return Err(format!("Task with id {} not found", task_id));
                 }
             }
-            Command::AddWatcher { timestamp, task_id, resource_name } => {
+            CommandDetails::AddWatcher { task_id, resource_name } => {
                 let resource_id = self.resources.iter()
                     .find(|(_, res)| res.name == resource_name)
                     .map(|(id, _)| *id);
@@ -923,12 +897,12 @@ impl FlowState {
                     if let Some(resource) = self.resources.get_mut(&resource_id) {
                         resource.watched_tasks.insert(0, task_id);
                     }
-                    Ok(Command::RemoveWatcher { timestamp, task_id, resource_name })
+                    Ok(Command { timestamp, details: CommandDetails::RemoveWatcher { task_id, resource_name } })
                 } else {
                     return Err(format!("Task with id {} not found", task_id));
                 }
             }
-            Command::RemoveWatcher { timestamp, task_id, resource_name } => {
+            CommandDetails::RemoveWatcher { task_id, resource_name } => {
                 let resource_id = self.resources.iter()
                     .find(|(_, res)| res.name == resource_name)
                     .map(|(id, _)| *id);
@@ -944,12 +918,12 @@ impl FlowState {
                     if let Some(resource) = self.resources.get_mut(&resource_id) {
                         resource.watched_tasks.retain(|&x| x != task_id);
                     }
-                    Ok(Command::AddWatcher { timestamp, task_id, resource_name })
+                    Ok(Command { timestamp, details: CommandDetails::AddWatcher { task_id, resource_name } })
                 } else {
                     return Err(format!("Task with id {} not found", task_id));
                 }
             }
-            Command::CreateLabel { timestamp, name } => {
+            CommandDetails::CreateLabel { name } => {
                 if self.labels.values().any(|label| label.name == name) {
                     return Err(format!("A label with the name '{}' already exists", name));
                 }
@@ -957,9 +931,9 @@ impl FlowState {
                 let label_id = self.next_label_id();
                 self.labels.insert(label_id, Label { name: name.clone() });
 
-                Ok(Command::DeleteLabel { timestamp, name })
+                Ok(Command { timestamp, details: CommandDetails::DeleteLabel { name } })
             }
-            Command::RenameLabel { timestamp, old_name, new_name } => {
+            CommandDetails::RenameLabel { old_name, new_name } => {
                 let label_id = self.labels.iter()
                     .find(|(_, label)| label.name == old_name)
                     .map(|(id, _)| *id);
@@ -968,21 +942,21 @@ impl FlowState {
                 }
                 let label_id = label_id.unwrap();
                 self.labels.insert(label_id, Label { name: new_name.clone() });
-                Ok(Command::RenameLabel { timestamp, new_name, old_name })
+                Ok(Command { timestamp, details: CommandDetails::RenameLabel { new_name, old_name } })
             }
 
-            Command::DeleteLabel { timestamp, name } => {
+            CommandDetails::DeleteLabel { name } => {
                 let label_id = self.labels.iter()
                     .find(|(_, label)| label.name == name)
                     .map(|(id, _)| *id);
                 if let Some(label_id) = label_id {
                     self.labels.remove(&label_id);
-                    Ok(Command::CreateLabel { timestamp, name })
+                    Ok(Command { timestamp, details: CommandDetails::CreateLabel { name } })
                 } else {
                     return Err(format!("No label found with the name '{}'", name));
                 }
             }
-            Command::AddLabelToTask { timestamp, task_id, label_name } => {
+            CommandDetails::AddLabelToTask { task_id, label_name } => {
                 let label_id = self.get_label_id(&label_name);
                 if label_id.is_none() {
                     return Err(format!("No label found with the name '{}'", label_name));
@@ -991,12 +965,12 @@ impl FlowState {
 
                 if let Some(task) = self.tasks.get_mut(&task_id) {
                     task.label_ids.insert(label_id);
-                    Ok(Command::RemoveLabelFromTask { timestamp, task_id, label_name })
+                    Ok(Command { timestamp, details: CommandDetails::RemoveLabelFromTask { task_id, label_name } })
                 } else {
                     return Err(format!("Task with id {} not found", task_id));
                 }
             }
-            Command::RemoveLabelFromTask { timestamp, task_id, label_name } => {
+            CommandDetails::RemoveLabelFromTask { task_id, label_name } => {
                 let label_id = self.get_label_id(&label_name);
                 if label_id.is_none() {
                     return Err(format!("No label found with the name '{}'", label_name));
@@ -1005,12 +979,12 @@ impl FlowState {
 
                 if let Some(task) = self.tasks.get_mut(&task_id) {
                     task.label_ids.remove(&label_id);
-                    Ok(Command::AddLabelToTask { timestamp, task_id, label_name })
+                    Ok(Command { timestamp, details: CommandDetails::AddLabelToTask { task_id, label_name } })
                 } else {
                     return Err(format!("Task with id {} not found", task_id));
                 }
             }
-            Command::CreateModifyFilter { timestamp, name, labels, is_favorite } => {
+            CommandDetails::CreateModifyFilter { name, labels, is_favorite } => {
                 let existing_filter_id = self.filters.iter()
                     .find(|(_, filter)| filter.name == name)
                     .map(|(id, _)| *id);
@@ -1031,14 +1005,14 @@ impl FlowState {
                         .collect();
                     let old_is_favorite = self.filters[&filter_id].is_favorite;
                     self.filters.insert(filter_id, Filter { name: name.clone(), labels: label_ids, is_favorite });
-                    Ok(Command::CreateModifyFilter { timestamp, name, labels: old_label_names, is_favorite: old_is_favorite })
+                    Ok(Command { timestamp, details: CommandDetails::CreateModifyFilter { name, labels: old_label_names, is_favorite: old_is_favorite } })
                 } else {
                     let filter_id = self.next_filter_id();
                     self.filters.insert(filter_id, Filter { name: name.clone(), labels: label_ids, is_favorite: false });
-                    Ok(Command::DeleteFilter { timestamp, name })
+                    Ok(Command { timestamp, details: CommandDetails::DeleteFilter { name } })
                 }
             }
-            Command::RenameFilter { timestamp, old_name, new_name } => {
+            CommandDetails::RenameFilter { old_name, new_name } => {
                 let filter_id = self.filters.iter()
                     .find(|(_, filter)| filter.name == old_name)
                     .map(|(id, _)| *id);
@@ -1052,9 +1026,9 @@ impl FlowState {
                 if let Some(filter) = self.filters.get_mut(&filter_id) {
                     filter.name = new_name.clone();
                 }
-                Ok(Command::RenameFilter { timestamp, old_name: new_name, new_name: old_name })
+                Ok(Command { timestamp, details: CommandDetails::RenameFilter { old_name: new_name, new_name: old_name } })
             }
-            Command::DeleteFilter { timestamp, name } => {
+            CommandDetails::DeleteFilter { name } => {
                 let filter_id = self.filters.iter()
                     .find(|(_, filter)| filter.name == name)
                     .map(|(id, _)| *id);
@@ -1066,12 +1040,12 @@ impl FlowState {
                         .filter_map(|id| self.labels.get(&id).map(|label| label.name.clone()))
                         .collect();
                     self.filters.remove(&filter_id);
-                    Ok(Command::CreateModifyFilter { timestamp, name, labels, is_favorite: filter.is_favorite })
+                    Ok(Command { timestamp, details: CommandDetails::CreateModifyFilter { name, labels, is_favorite: filter.is_favorite } })
                 } else {
                     return Err(format!("No filter found with the name '{}'", name));
                 }
             }
-            Command::SetWorklog { timestamp, task_id, date, resource_name, fraction } => {
+            CommandDetails::SetWorklog { task_id, date, resource_name, fraction } => {
                 let resource_id = self.resources.iter()
                     .find(|(_, res)| res.name == resource_name)
                     .map(|(id, _)| *id);
@@ -1126,15 +1100,14 @@ impl FlowState {
                         .insert(date, worklog);
                 }
 
-                Ok(Command::SetWorklog {
-                    timestamp,
+                Ok(Command { timestamp, details: CommandDetails::SetWorklog {
                     task_id,
                     date,
                     resource_name,
                     fraction: previous_fraction,
-                })
+                }})
             }
-            Command::SetAbsence { timestamp, resource_name, start_date, days } => {
+            CommandDetails::SetAbsence { resource_name, start_date, days } => {
                 let resource_id = self.resources.iter()
                     .find(|(_, res)| res.name == resource_name)
                     .map(|(id, _)| *id);
@@ -1155,31 +1128,29 @@ impl FlowState {
                         absences.push(absence);
                     }
                 }
-                Ok(Command::SetAbsence {
-                    timestamp,
+                Ok(Command { timestamp, details: CommandDetails::SetAbsence {
                     resource_name,
                     start_date,
                     days: if days > TaskDuration::zero() { TaskDuration::zero() } else { days },
-                })
-                /* This is not correct behavior! */
+                }})
             }
-            Command::AddMilestone { timestamp, title, date } => {
+            CommandDetails::AddMilestone { title, date } => {
                 let milestone = Milestone {
                     title,
                     date,
                 };
                 self.milestones.push(milestone.clone());
-                Ok(Command::RemoveMilestone { timestamp, title: milestone.title })
+                Ok(Command { timestamp, details: CommandDetails::RemoveMilestone { title: milestone.title } })
             }
-            Command::RemoveMilestone { timestamp, title } => {
+            CommandDetails::RemoveMilestone { title } => {
                 if let Some(pos) = self.milestones.iter().position(|m| m.title == title) {
                     let milestone = self.milestones.remove(pos);
-                    Ok(Command::AddMilestone { timestamp, title: milestone.title, date: milestone.date })
+                    Ok(Command { timestamp, details: CommandDetails::AddMilestone { title: milestone.title, date: milestone.date } })
                 } else {
                     return Err(format!("No milestone found with the title '{}'", title));
                 }
             }
-            Command::CompoundCommand { timestamp, commands } => {
+            CommandDetails::CompoundCommand { commands } => {
                 let mut flow_state_clone = self.clone();
                 let mut undo_commands = Vec::new();
                 for cmd in commands {
@@ -1188,7 +1159,7 @@ impl FlowState {
                 }
                 undo_commands.reverse();
                 *self = flow_state_clone;
-                Ok(Command::CompoundCommand { timestamp, commands: undo_commands })
+                Ok(Command { timestamp, details: CommandDetails::CompoundCommand { commands: undo_commands }})
             }
         }
     }
@@ -1537,7 +1508,7 @@ mod tests {
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
-        let result = app.invoke_command(Command::CreateTeam { timestamp, name: team_name });
+        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } });
 
         assert!(result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == "Development"));
@@ -1549,7 +1520,7 @@ mod tests {
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
-        let result = app.invoke_command(Command::CreateTeam { timestamp, name: team_name });
+        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } });
         assert!(result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == "Development"));
 
@@ -1564,7 +1535,7 @@ mod tests {
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
-        let result = app.invoke_command(Command::CreateTeam { timestamp, name: team_name });
+        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } });
         assert!(result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == "Development"));
 
@@ -1584,15 +1555,15 @@ mod tests {
         let team_name = "Development".to_string();
         let new_team_name = "Engineering".to_string();
 
-        let create_result = app.invoke_command(Command::CreateTeam { timestamp, name: team_name.clone() });
+        let create_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } });
         assert!(create_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == team_name));
 
-        let rename_result = app.invoke_command(Command::RenameTeam { timestamp, old_name: team_name.clone(), new_name: new_team_name.clone() });
+        let rename_result = app.invoke_command(Command { timestamp, details: CommandDetails::RenameTeam { old_name: team_name.clone(), new_name: new_team_name.clone() } });
         assert!(rename_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == new_team_name));
 
-        let delete_result = app.invoke_command(Command::DeleteTeam { timestamp, name: new_team_name.clone() });
+        let delete_result = app.invoke_command(Command { timestamp, details: CommandDetails::DeleteTeam { name: new_team_name.clone() } });
         assert!(delete_result.is_ok());
         assert!(!app.flow_state.teams.values().any(|team| team.name == new_team_name));
     }
@@ -1605,26 +1576,26 @@ mod tests {
         let resource_name = "Alice".to_string();
         let new_team_name = "Engineering".to_string();
 
-        let create_team_result = app.invoke_command(Command::CreateTeam { timestamp, name: team_name.clone() });
+        let create_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } });
         assert!(create_team_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == team_name));
 
-        let create_resource_result = app.invoke_command(Command::CreateResource { timestamp, name: resource_name.clone(), team_name: team_name.clone() });
+        let create_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateResource { name: resource_name.clone(), team_name: team_name.clone() } });
         assert!(create_resource_result.is_ok());
         assert!(app.flow_state.resources.values().any(|res| res.name == resource_name));
 
-        let rename_team_result = app.invoke_command(Command::RenameTeam { timestamp, old_name: team_name.clone(), new_name: new_team_name.clone() });
+        let rename_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::RenameTeam { old_name: team_name.clone(), new_name: new_team_name.clone() } });
         assert!(rename_team_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == new_team_name));
 
-        let switch_team_result = app.invoke_command(Command::SwitchTeam { timestamp, resource_name: resource_name.clone(), new_team_name: new_team_name.clone() });
+        let switch_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::SwitchTeam { resource_name: resource_name.clone(), new_team_name: new_team_name.clone() } });
         assert!(switch_team_result.is_ok());
         
         if let Some(resource) = app.flow_state.resources.get(&1) {
             assert_eq!(resource.team_id, 1); // Assuming the new team's ID is 1
         }
 
-        let delete_resource_result = app.invoke_command(Command::DeleteResource { timestamp, name: resource_name.clone() });
+        let delete_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::DeleteResource { name: resource_name.clone() } });
         assert!(delete_resource_result.is_ok());
         assert!(!app.flow_state.resources.values().any(|res| res.name == resource_name));
     }
@@ -1640,13 +1611,12 @@ mod tests {
         let duration = TaskDuration { days: 2, fraction: 50 };
 
         let create_task_result = app.invoke_command(
-            Command::CreateTask {
-                timestamp,
+            Command { timestamp, details: CommandDetails::CreateTask {
                 id: task_id,
                 ticket,
                 title: title.clone(),
                 duration,
-            });
+            }});
         assert!(create_task_result.is_ok());
         assert!(app.flow_state.tasks.values().any(|task| task.title == title));
 
@@ -1667,12 +1637,12 @@ mod tests {
         let resource_name = "Alice".to_string();
 
         // Create a team
-        let create_team_result = app.invoke_command(Command::CreateTeam { timestamp, name: team_name.clone() });
+        let create_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } });
         assert!(create_team_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == team_name));
 
         // Create a resource in the team
-        let create_resource_result = app.invoke_command(Command::CreateResource { timestamp, name: resource_name.clone(), team_name: team_name.clone() });
+        let create_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateResource { name: resource_name.clone(), team_name: team_name.clone() } });
         assert!(create_resource_result.is_ok());
         assert!(app.flow_state.resources.values().any(|res| res.name == resource_name));
 
