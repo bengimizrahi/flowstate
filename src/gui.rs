@@ -438,6 +438,11 @@ impl Gui {
                     }
                 }
             }
+            if let Some(_filters_menu) = ui.begin_menu("View") {
+                if ui.menu_item_config("Hide Worklogs").selected(self.gui_config.hide_worklogs).build() {
+                    self.gui_config.hide_worklogs = !self.gui_config.hide_worklogs;
+                }
+            }
             if let Some(_help_menu) = ui.begin_menu("Help") {
                 if ui.menu_item("About") {
 
@@ -676,7 +681,9 @@ impl Gui {
                 let day = self.project.flow_state().cache().day(i - 1);
                 self.draw_cell_background(ui, &day);
                 self.draw_absence(ui, &day, resource_id, &resource);
-                self.draw_worklog_on_others_tasks(ui, &day, resource_id, &resource);
+                if !self.gui_config.hide_worklogs {
+                    self.draw_worklog_on_others_tasks(ui, &day, resource_id, &resource);
+                }
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
                 self.draw_gantt_chart_resources_team_resource_content_popup(ui, resource_id, &resource, &day);
@@ -755,7 +762,9 @@ impl Gui {
                 let _day_token_id = ui.push_id_usize(i);
                 let day = self.project.flow_state().cache().day(i - 1);
                 self.draw_cell_background(ui, &day);
-                self.draw_worklog(ui, &day, resource_id, resource, task_id, &task);
+                if !self.gui_config.hide_worklogs {
+                    self.draw_worklog(ui, &day, resource_id, resource, task_id, &task);
+                }
                 self.draw_alloc(ui, &day, Some(resource_id), task_id, &task);
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
@@ -814,7 +823,9 @@ impl Gui {
                 let _day_token_id = ui.push_id_usize(i);
                 let day = self.project.flow_state().cache().day(i - 1);
                 self.draw_cell_background(ui, &day);
-                self.draw_worklog(ui, &day, resource_id, resource, task_id, &task);
+                if !self.gui_config.hide_worklogs {
+                    self.draw_worklog(ui, &day, resource_id, resource, task_id, &task);
+                }
                 self.draw_alloc_as_watcher(ui, &day, task.assignee.as_ref(), task_id, &task);
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
@@ -2759,7 +2770,9 @@ impl Gui {
                 let day = self.project.flow_state().cache().day(i - 1);
                 self.draw_cell_background(ui, &day);
                 self.draw_absence(ui, &day, resource_id, &resource);
-                self.draw_worklog(ui, &day, resource_id, &resource, task_id, task);
+                if !self.gui_config.hide_worklogs {
+                    self.draw_worklog(ui, &day, resource_id, &resource, task_id, task);
+                }
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
                 self.draw_gantt_chart_resources_team_resource_content_popup(ui, resource_id, &resource, &day);
@@ -2802,6 +2815,7 @@ enum RoleOfResourceInTask {
 struct GuiConfig {
     pub config_filename: String,
     pub ticket_prefix: String,
+    pub hide_worklogs: bool,
     pub recent_project_files: Vec<String>,
 }
 
@@ -2815,6 +2829,7 @@ impl GuiConfig {
         GuiConfig {
             config_filename: path.to_string(),
             ticket_prefix: "PROJ-".to_string(),
+            hide_worklogs: false,
             recent_project_files: Vec::new(),
         }
     }
