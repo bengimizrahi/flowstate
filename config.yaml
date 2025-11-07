@@ -1,9 +1,0 @@
-config_filename: config.yaml
-ticket_prefix: PROJ-
-recent_project_files:
-- /Users/bmizrahi/Projects/flowstate/pre-nokia-database.yaml
-- /Users/bmizrahi/Projects/flowstate/template_database.yaml
-- personal_database.yaml
-- /Users/bmizrahi/Projects/flowstate/database.yaml
-- test.yaml
-- test_inspect.yaml
