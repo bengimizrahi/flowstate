@@ -6,7 +6,7 @@ use imgui::sys::igGetCursorScreenPos;
 use imgui::sys::igGetTextLineHeight;
 use imgui::sys::ImVec2;
 use imgui::*;
-use chrono::{Utc, Datelike, NaiveDate};
+use chrono::{Utc, DateTime, Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -29,6 +29,7 @@ pub struct Gui {
     selected_filter: Option<FilterId>,
 
     drag_drop_task_id: Option<TaskId>,
+    date_offset: i32,
 
     bold_font: std::rc::Rc<std::cell::RefCell<Option<FontId>>>,
     find_input_buffer: String,
@@ -81,6 +82,7 @@ impl Gui {
             selected_filter: None,
 
             drag_drop_task_id: None,
+            date_offset: 0,
 
             bold_font: std::rc::Rc::new(std::cell::RefCell::new(None)),
             find_input_buffer: String::new(),
@@ -269,7 +271,7 @@ impl Gui {
                         }
                         if can_create_team {
                             ui.close_current_popup();
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::CreateTeam {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::CreateTeam {
                                 name: self.team_input_text_buffer.clone(),
                             }}).unwrap();
                             self.team_input_text_buffer.clear();
@@ -309,7 +311,7 @@ impl Gui {
                             }
                             if can_create_milestone {
                                 ui.close_current_popup();
-                                self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::AddMilestone {
+                                self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddMilestone {
                                     title: self.milestone_input_text_buffer.clone(),
                                     date: NaiveDate::parse_from_str(&self.milestone_date_input_text_buffer, "%Y-%m-%d").unwrap(),
                                 }}).unwrap();
@@ -322,7 +324,7 @@ impl Gui {
                         for milestone in milestones {
                             let milestone_label = format!("{} - {}", milestone.date.format("%Y-%m-%d"), milestone.title);
                             if ui.menu_item(&milestone_label) {
-                                self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::RemoveMilestone {
+                                self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveMilestone {
                                     title: milestone.title.clone(),
                                 }}).unwrap();
                             }
@@ -370,7 +372,7 @@ impl Gui {
                                 .filter_map(|&label_id| self.project.flow_state().labels.get(&label_id))
                                 .map(|label| label.name.clone())
                                 .collect();
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::CreateModifyFilter {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::CreateModifyFilter {
                                 name: filter.name.clone(),
                                 labels: label_names,
                                 is_favorite: filter.is_favorite,
@@ -386,7 +388,7 @@ impl Gui {
                         .build();
                     if ui.button("Ok") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::CreateModifyFilter {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::CreateModifyFilter {
                             name: self.filter_input_text_buffer.clone(),
                             labels: self.filtered_labels.iter()
                                 .filter_map(|&label_id| self.project.flow_state().labels.get(&label_id))
@@ -405,7 +407,7 @@ impl Gui {
                     for (filter_id, filter) in &filters {
                         let is_selected = self.selected_filter == Some(*filter_id);
                         if ui.menu_item(&filter.name) {
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::DeleteFilter {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeleteFilter {
                                 name: filter.name.clone(),
                             }}).unwrap();
                             if is_selected {
@@ -419,7 +421,7 @@ impl Gui {
                     for (filter_id, filter) in &filters {
                         let is_favorite = filter.is_favorite;
                         if ui.menu_item_config(&filter.name).selected(is_favorite).build() {
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::CreateModifyFilter {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::CreateModifyFilter {
                                 name: filter.name.clone(),
                                 labels: filter.labels.iter()
                                     .filter_map(|&label_id| self.project.flow_state().labels.get(&label_id))
@@ -441,7 +443,12 @@ impl Gui {
                 if ui.menu_item("About") {
 
                 }
-            };
+                ui.separator();
+                if ui.menu_item_config("Debug Mode").selected(self.gui_config.debug_mode).build() {
+                    self.gui_config.debug_mode = !self.gui_config.debug_mode;
+                    self.gui_config.save_to_file();
+                }
+            }
         };
     }
 
@@ -458,6 +465,14 @@ impl Gui {
         
         if ui.is_key_pressed(Key::Escape) {
             self.find_input_buffer.clear();
+        }
+
+        if self.gui_config.debug_mode {
+            ui.same_line();
+            ui.set_next_item_width(80.0);
+            ui.input_int("##date_offset_input", &mut self.date_offset)
+                        .step(1)
+                        .build();
         }
 
         for (filter_id, filter) in &self.project.flow_state().filters {
@@ -560,7 +575,11 @@ impl Gui {
         unsafe {imgui::sys::igTableAngledHeadersRow();}
         ui.table_headers_row();
 
-        let today = chrono::Local::now().date_naive();
+        let today = if self.date_offset < 0 {
+            chrono::Local::now().date_naive() - chrono::Days::new(self.date_offset.abs() as u64)
+        } else {
+            chrono::Local::now().date_naive() + chrono::Days::new(self.date_offset.abs() as u64)
+        };
         for i in 0..self.project.flow_state().cache().num_days() {
             let day: chrono::NaiveDate = self.project.flow_state().cache().day(i);
             if day == today {
@@ -1301,7 +1320,7 @@ impl Gui {
                     }
                     if can_create_team {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::RenameTeam {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RenameTeam {
                             old_name: team.name.clone(),
                             new_name: self.team_input_text_buffer.clone(),
                         }}).unwrap_or_else(|e| {
@@ -1312,7 +1331,7 @@ impl Gui {
                 }
             }
             if ui.menu_item("Delete Team") {
-                self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::DeleteTeam {
+                self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeleteTeam {
                     name: team.name.clone(),
                 }}).unwrap_or_else(|e| {
                     eprintln!("Failed to delete team: {e}");
@@ -1336,7 +1355,7 @@ impl Gui {
                     }
                     if can_create_resource {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::CreateResource {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::CreateResource {
                             name: self.resource_input_text_buffer.clone(),
                             team_name: team.name.clone(),
                         }}).unwrap_or_else(|e| {
@@ -1392,7 +1411,7 @@ impl Gui {
                         if ui.button("Ok") {
                             ui.close_current_popup();
                             let task_id = self.project.flow_state_mut().next_task_id();
-                            let timestamp = Utc::now();
+                            let timestamp = self.get_timestamp();
                             let mut commands = vec![
                                 Command { timestamp, details: CommandDetails::CreateTask {
                                     id: task_id,
@@ -1444,7 +1463,7 @@ impl Gui {
                     }
                     if can_create_resource {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::RenameResource {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RenameResource {
                             old_name: resource.name.clone(),
                             new_name: self.resource_input_text_buffer.clone(),
                         }}).unwrap_or_else(|e| {
@@ -1455,7 +1474,7 @@ impl Gui {
                 }
             }
             if ui.menu_item("Delete Resource") {
-                self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::DeleteResource {
+                self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeleteResource {
                     name: resource.name.clone(),
                 }}).unwrap_or_else(|e| {
                     eprintln!("Failed to delete resource: {e}");
@@ -1521,7 +1540,7 @@ impl Gui {
                             days: self.absence_duration_days as u64,
                             fraction: (self.absence_duration_days.fract() * 100.0) as u8,
                         };
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::SetAbsence {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetAbsence {
                             resource_name: resource.name.clone(),
                             start_date: *day,
                             days: absence_duration,
@@ -1534,7 +1553,7 @@ impl Gui {
             }
             if show_remove_option {
                 if ui.menu_item("Remove Absence") {
-                    self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::SetAbsence {
+                    self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetAbsence {
                         resource_name: resource.name.clone(),
                         start_date: *day,
                         days: TaskDuration {
@@ -1553,7 +1572,7 @@ impl Gui {
         if let Some(_popup) = ui.begin_popup_context_item() {
             if ui.menu_item("Move to top") {
                 ui.close_current_popup();
-                self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::PrioritizeTask {
+                self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::PrioritizeTask {
                     task_id: *task_id,
                     to_top: true
                 }}).unwrap_or_else(|e| {
@@ -1562,7 +1581,7 @@ impl Gui {
             }
             if ui.menu_item("Move up") {
                 ui.close_current_popup();
-                self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::PrioritizeTask {
+                self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::PrioritizeTask {
                     task_id: *task_id,
                     to_top: false
                 }}).unwrap_or_else(|e| {
@@ -1571,7 +1590,7 @@ impl Gui {
             }
             if ui.menu_item("Move down") {
                 ui.close_current_popup();
-                self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::DeprioritizeTask {
+                self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeprioritizeTask {
                     task_id: *task_id,
                     to_bottom: false
                 }}).unwrap_or_else(|e| {
@@ -1580,7 +1599,7 @@ impl Gui {
             }
             if ui.menu_item("Move to bottom") {
                 ui.close_current_popup();
-                self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::DeprioritizeTask {
+                self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeprioritizeTask {
                     task_id: *task_id,
                     to_bottom: true
                 }}).unwrap_or_else(|e| {
@@ -1593,7 +1612,7 @@ impl Gui {
                 resources.sort_by(|a, b| a.name.cmp(&b.name));
                 for resource in resources {
                     if ui.menu_item(resource.name.clone()) {
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::AssignTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
                             task_id: *task_id,
                             resource_name: resource.name,
                         }}).unwrap_or_else(|e| {
@@ -1603,7 +1622,7 @@ impl Gui {
                 }
             }
             if ui.menu_item("Unassign") {
-                self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UnassignTask {
+                self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UnassignTask {
                     task_id: *task_id,
                 }}).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to unassign task: {e}");
@@ -1618,14 +1637,14 @@ impl Gui {
                     let is_watching = resource.watched_tasks.contains(task_id);
                     if ui.menu_item_config(resource.name.clone()).selected(is_watching).build() {
                         if is_watching {
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::RemoveWatcher {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
                             }}).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to unwatch task: {e}");
                             });
                         } else {
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::AddWatcher {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
                             }}).unwrap_or_else(|e| {
@@ -1681,7 +1700,7 @@ impl Gui {
                     }
                     if can_update_task {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UpdateTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UpdateTask {
                             id: *task_id,
                             ticket: self.ticket_input_text_buffer.clone(),
                             title: self.task_title_input_text_buffer.clone(),
@@ -1707,14 +1726,14 @@ impl Gui {
                     let is_selected = task.label_ids.contains(&label_id);
                     if ui.menu_item_config(&label.name).selected(is_selected).build() {
                         if is_selected {
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::RemoveLabelFromTask {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveLabelFromTask {
                                 task_id: *task_id,
                                 label_name: label.name.clone(),
                             }}).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to remove label from task: {e}");
                             });
                         } else {
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::AddLabelToTask {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddLabelToTask {
                                 task_id: *task_id,
                                 label_name: label.name.clone(),
                             }}).unwrap_or_else(|e| {
@@ -1732,7 +1751,7 @@ impl Gui {
                             .hint("Enter label name")
                             .build();
                         if ui.button("Ok") && !self.label_input_text_buffer.is_empty() {
-                            let timestamp = Utc::now();
+                            let timestamp = self.get_timestamp();
                             self.project.invoke_command(Command { timestamp, details: CommandDetails::CompoundCommand {
                                 commands: vec![
                                     Command { timestamp, details: CommandDetails::CreateLabel {
@@ -1761,7 +1780,7 @@ impl Gui {
                         .build(&mut self.task_duration_days);
                     if ui.button("Ok") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UpdateTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UpdateTask {
                             id: *task_id,
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
@@ -1792,7 +1811,7 @@ impl Gui {
                         new_duration_days = Some(task.duration + TaskDuration { days: 5, fraction: 0 });
                     }
                     if let Some(new_duration_days) = new_duration_days {
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UpdateTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UpdateTask {
                             id: *task_id,
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
@@ -1813,7 +1832,7 @@ impl Gui {
                 resources.sort_by(|a, b| a.name.cmp(&b.name));
                 for resource in resources {
                     if ui.menu_item(resource.name.clone()) {
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::AssignTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
                             task_id: *task_id,
                             resource_name: resource.name,
                         }}).unwrap_or_else(|e| {
@@ -1823,7 +1842,7 @@ impl Gui {
                 }
             }
             if ui.menu_item("Unwatch") {
-                self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::RemoveWatcher {
+                self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveWatcher {
                     task_id: *task_id,
                     resource_name: resource.name.clone(),
                 }}).unwrap_or_else(|e| {
@@ -1839,14 +1858,14 @@ impl Gui {
                     let is_watching = resource.watched_tasks.contains(task_id);
                     if ui.menu_item_config(resource.name.clone()).selected(is_watching).build() {
                         if is_watching {
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::RemoveWatcher {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
                             }}).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to unwatch task: {e}");
                             });
                         } else {
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::AddWatcher {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
                             }}).unwrap_or_else(|e| {
@@ -1899,7 +1918,7 @@ impl Gui {
                     }
                     if can_update_task {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UpdateTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UpdateTask {
                             id: *task_id,
                             ticket: self.ticket_input_text_buffer.clone(),
                             title: self.task_title_input_text_buffer.clone(),
@@ -1925,14 +1944,14 @@ impl Gui {
                     let is_selected = task.label_ids.contains(&label_id);
                     if ui.menu_item_config(&label.name).selected(is_selected).build() {
                         if is_selected {
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::RemoveLabelFromTask {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveLabelFromTask {
                                 task_id: *task_id,
                                 label_name: label.name.clone(),
                             }}).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to remove label from task: {e}");
                             });
                         } else {
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::AddLabelToTask {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddLabelToTask {
                                 task_id: *task_id,
                                 label_name: label.name.clone(),
                             }}).unwrap_or_else(|e| {
@@ -1950,7 +1969,7 @@ impl Gui {
                             .hint("Enter label name")
                             .build();
                         if ui.button("Ok") && !self.label_input_text_buffer.is_empty() {
-                            let timestamp = Utc::now();
+                            let timestamp = self.get_timestamp();
                             self.project.invoke_command(Command { timestamp, details: CommandDetails::CompoundCommand {
                                 commands: vec![
                                     Command { timestamp, details: CommandDetails::CreateLabel {
@@ -1979,7 +1998,7 @@ impl Gui {
                         .build(&mut self.task_duration_days);
                     if ui.button("Ok") {
                         ui.close_current_popup();
-                        let timestamp = Utc::now();
+                        let timestamp = self.get_timestamp();
                         self.project.invoke_command(Command { timestamp, details: CommandDetails::UpdateTask {
                             id: *task_id,
                             ticket: task.ticket.clone(),
@@ -2011,7 +2030,7 @@ impl Gui {
                         new_duration_days = Some(task.duration + TaskDuration { days: 5, fraction: 0 });
                     }
                     if let Some(new_duration_days) = new_duration_days {
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UpdateTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UpdateTask {
                             id: *task_id,
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
@@ -2036,7 +2055,7 @@ impl Gui {
                     ui.same_line();
                     if ui.button("Ok") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::SetWorklog {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
                             task_id: *task_id,
                             date: *day,
                             resource_name: resource.name.clone(),
@@ -2047,7 +2066,7 @@ impl Gui {
                     }
                     if ui.button("0%") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::SetWorklog {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
                             task_id: *task_id,
                             date: *day,
                             resource_name: resource.name.clone(),
@@ -2059,7 +2078,7 @@ impl Gui {
                     ui.same_line();
                     if ui.button("10%") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::SetWorklog {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
                             task_id: *task_id,
                             date: *day,
                             resource_name: resource.name.clone(),
@@ -2071,7 +2090,7 @@ impl Gui {
                     ui.same_line();
                     if ui.button("25%") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::SetWorklog {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
                             task_id: *task_id,
                             date: *day,
                             resource_name: resource.name.clone(),
@@ -2083,7 +2102,7 @@ impl Gui {
                     ui.same_line();
                     if ui.button("50%") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::SetWorklog {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
                             task_id: *task_id,
                             date: *day,
                             resource_name: resource.name.clone(),
@@ -2095,7 +2114,7 @@ impl Gui {
                     ui.same_line();
                     if ui.button("75%") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::SetWorklog {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
                             task_id: *task_id,
                             date: *day,
                             resource_name: resource.name.clone(),
@@ -2107,7 +2126,7 @@ impl Gui {
                     ui.same_line();
                     if ui.button("100%") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::SetWorklog {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
                             task_id: *task_id,
                             date: *day,
                             resource_name: resource.name.clone(),
@@ -2138,7 +2157,7 @@ impl Gui {
                                 .and_then(|resource_worklogs| resource_worklogs.get(day))
                                 .map(|w| w.fraction)
                                 .unwrap_or(0);
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::SetWorklog {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
                                 task_id: *task_id,
                                 date: *day,
                                 resource_name: resource.name.clone(),
@@ -2159,7 +2178,7 @@ impl Gui {
                         .build(&mut self.task_duration_days);
                     if ui.button("Ok") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UpdateTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UpdateTask {
                             id: *task_id,
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
@@ -2193,7 +2212,7 @@ impl Gui {
                         println!("New duration days: {:?}", new_duration_days);
                     }
                     if let Some(new_duration_days) = new_duration_days {
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UpdateTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UpdateTask {
                             id: *task_id,
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
@@ -2213,7 +2232,7 @@ impl Gui {
                                 days: 0,
                                 fraction: task_alloc_for_day,
                             });
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UpdateTask {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UpdateTask {
                                 id: *task_id,
                                 ticket: task.ticket.clone(),
                                 title: task.title.clone(),
@@ -2231,7 +2250,7 @@ impl Gui {
                                 days: 0,
                                 fraction: 100 - task_alloc_for_day,
                             });
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UpdateTask {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UpdateTask {
                                 id: *task_id,
                                 ticket: task.ticket.clone(),
                                 title: task.title.clone(),
@@ -2292,7 +2311,7 @@ impl Gui {
                         ui.close_current_popup();
                         let task_id = self.project.flow_state_mut().next_task_id();
                         let mut commands = vec![
-                            Command { timestamp: Utc::now(), details: CommandDetails::CreateTask {
+                            Command { timestamp: self.get_timestamp(), details: CommandDetails::CreateTask {
                                 id: task_id,
                                 ticket: self.ticket_input_text_buffer.clone(),
                                 title: self.task_title_input_text_buffer.clone(),
@@ -2304,13 +2323,13 @@ impl Gui {
                         ];
                         for &label_id in &self.filtered_labels {
                             if let Some(label) = self.project.flow_state().labels.get(&label_id) {
-                                commands.push(Command { timestamp: Utc::now(), details: CommandDetails::AddLabelToTask {
+                                commands.push(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddLabelToTask {
                                     task_id,
                                     label_name: label.name.clone(),
                                 }});
                             }
                         }
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::CompoundCommand {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::CompoundCommand {
                             commands,
                         }}).unwrap_or_else(|e| {
                             eprintln!("Failed to create task: {e}");
@@ -2329,7 +2348,7 @@ impl Gui {
                 resources.sort_by(|a, b| a.name.cmp(&b.name));
                 for resource in resources {
                     if ui.menu_item(resource.name.clone()) {
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::AssignTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
                             task_id: *task_id,
                             resource_name: resource.name,
                         }}).unwrap_or_else(|e| {
@@ -2346,14 +2365,14 @@ impl Gui {
                     let is_watching = resource.watched_tasks.contains(task_id);
                     if ui.menu_item_config(resource.name.clone()).selected(is_watching).build() {
                         if is_watching {
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::RemoveWatcher {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
                             }}).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to unwatch task: {e}");
                             });
                         } else {
-                            self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::AddWatcher {
+                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
                             }}).unwrap_or_else(|e| {
@@ -2365,7 +2384,7 @@ impl Gui {
             }
             ui.separator();
             if ui.menu_item("Delete") {
-                self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::DeleteTask {
+                self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeleteTask {
                     id: *task_id,
                 }}).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to delete task: {e}");
@@ -2413,7 +2432,7 @@ impl Gui {
                     }
                     if can_update_task {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UpdateTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UpdateTask {
                             id: *task_id,
                             ticket: self.ticket_input_text_buffer.clone(),
                             title: self.task_title_input_text_buffer.clone(),
@@ -2439,7 +2458,7 @@ impl Gui {
                     for (label_id, label) in labels {
                         if !task.label_ids.contains(&label_id) {
                             if ui.menu_item(&label.name) {
-                                self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::AddLabelToTask {
+                                self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddLabelToTask {
                                     task_id: *task_id,
                                     label_name: label.name.clone(),
                                 }}).unwrap_or_else(|e| {
@@ -2456,7 +2475,7 @@ impl Gui {
                                 .hint("Enter label name")
                                 .build();
                             if ui.button("Ok") && !self.label_input_text_buffer.is_empty() {
-                                let timestamp = Utc::now();
+                                let timestamp = self.get_timestamp();
                                 self.project.invoke_command(Command { timestamp, details: CommandDetails::CompoundCommand {
                                     commands: vec![
                                         Command { timestamp, details: CommandDetails::CreateLabel {
@@ -2480,7 +2499,7 @@ impl Gui {
                     for (label_id, label) in labels {
                         if task.label_ids.contains(&label_id) {
                             if ui.menu_item(&label.name) {
-                                self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::RemoveLabelFromTask {
+                                self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveLabelFromTask {
                                     task_id: *task_id,
                                     label_name: label.name.clone(),
                                 }}).unwrap_or_else(|e| {
@@ -2501,7 +2520,7 @@ impl Gui {
                         .build(&mut self.task_duration_days);
                     if ui.button("Ok") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UpdateTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UpdateTask {
                             id: *task_id,
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
@@ -2532,7 +2551,7 @@ impl Gui {
                         new_duration_days = Some(task.duration + TaskDuration { days: 7, fraction: 0 });
                     }
                     if let Some(new_duration_days) = new_duration_days {
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UpdateTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UpdateTask {
                             id: *task_id,
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
@@ -2557,7 +2576,7 @@ impl Gui {
                         .build(&mut self.task_duration_days);
                     if ui.button("Ok") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UpdateTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UpdateTask {
                             id: *task_id,
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
@@ -2591,7 +2610,7 @@ impl Gui {
                         println!("New duration days: {:?}", new_duration_days);
                     }
                     if let Some(new_duration_days) = new_duration_days {
-                        self.project.invoke_command(Command { timestamp: Utc::now(), details: CommandDetails::UpdateTask {
+                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UpdateTask {
                             id: *task_id,
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
@@ -2735,6 +2754,14 @@ impl Gui {
             gui_log!(self, "Failed to open JIRA URL: {}", e);
         });
     }
+
+    fn get_timestamp(&self) -> DateTime<Utc> {
+        if self.date_offset < 0 {
+            Utc::now() - chrono::Duration::days(self.date_offset.abs() as i64)
+        } else {
+            Utc::now() + chrono::Duration::days(self.date_offset.abs() as i64)
+        }
+    }
 }
 
 enum RoleOfResourceInTask {
@@ -2748,6 +2775,7 @@ struct GuiConfig {
     pub config_filename: String,
     pub ticket_prefix: String,
     pub hide_worklogs: bool,
+    pub debug_mode: bool,
     pub recent_project_files: Vec<String>,
 }
 
@@ -2762,6 +2790,7 @@ impl GuiConfig {
             config_filename: path.to_string(),
             ticket_prefix: "PROJ-".to_string(),
             hide_worklogs: false,
+            debug_mode: false,
             recent_project_files: Vec::new(),
         }
     }
