@@ -1685,19 +1685,51 @@ struct TaskInspector {
     task_id: TaskId,
     allocations: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
     absences: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
-    worklogs: HashMap<NaiveDate, HashMap<NaiveDate, Duration>>,
-    assignee: HashMap<NaiveDate, ResourceId>,
+    worklogs: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
+    assignee: HashMap<NaiveDate, Option<ResourceId>>,
 }
 
 impl TaskInspector {
     fn new(inspected_task_id: TaskId, commands: Vec<Command>) -> Self {
+        let mut allocations: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>> = HashMap::new();
+        let mut absences: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>> = HashMap::new();
+        let mut worklogs: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>> = HashMap::new();
+        let mut assignee: HashMap<NaiveDate, Option<ResourceId>> = HashMap::new();
         let mut flow_state = FlowState::new();
         for cmd in &commands {
             flow_state.execute_command_generate_inverse_and_rebuild_cache(cmd.clone()).unwrap();
+            let date = cmd.timestamp.date_naive();
             if let Some(inspected_task) = flow_state.tasks.get(&inspected_task_id) {
-                let inspected_task_assignee = inspected_task.assignee;
+                if let Some(inspected_task_assignee) = inspected_task.assignee {
+                    assignee.insert(date, Some(inspected_task_assignee));
+                    flow_state.worklogs.get(&inspected_task_id).map(|res_logs| {
+                        res_logs.get(&inspected_task_assignee).map(|logs| {
+                            worklogs.insert(
+                                date,
+                                logs.iter().map(|(d, w)| (*d, w.fraction)).collect::<HashMap<NaiveDate, Fraction>>()
+                            );
+                        });
+                    });
+                    flow_state.cache()
+                            .resource_absence_rendering.get(&inspected_task_assignee)
+                            .map(|abs| {
+                        absences.insert(date, abs.clone());
+                    });
+                    flow_state.cache().task_alloc_rendering.get(&inspected_task_assignee).map(|res_allocs| {
+                        res_allocs.get(&inspected_task_assignee).map(|alloc| {
+                            allocations.insert(date, alloc.clone());
+                        });
+                    });
+                } else {
+                    assignee.insert(date, None);
+                    worklogs.insert(date, HashMap::new());
+                    absences.insert(date, HashMap::new());
+                    flow_state.cache().unassigned_task_alloc_rendering.get(&inspected_task_id).map(|alloc| {
+                        allocations.insert(date, alloc.clone());
+                    });
+                }
             }
         }
-        TaskInspector { task_id: inspected_task_id, allocations: HashMap::new(), absences: HashMap::new(), worklogs: HashMap::new(), assignee: HashMap::new() }
+        TaskInspector { task_id: inspected_task_id, allocations, absences, worklogs, assignee }
     }
 }
