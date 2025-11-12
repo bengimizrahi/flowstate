@@ -161,12 +161,12 @@ impl Gui {
 
     fn draw_menu_bar(&mut self, ui: &Ui) {
         if ui.is_key_pressed(Key::Z) && ui.io().key_ctrl {
-            self.project.undo().unwrap_or_else(|e| {
+            self.project.undo(self.date_offset).unwrap_or_else(|e| {
                 gui_log!(self, "Failed to undo: {e}");
             });
         }
         if ui.is_key_pressed(Key::Y) && ui.io().key_ctrl {
-            self.project.redo().unwrap_or_else(|e| {
+            self.project.redo(self.date_offset).unwrap_or_else(|e| {
                 gui_log!(self, "Failed to redo: {e}");
             });
         }
@@ -243,12 +243,12 @@ impl Gui {
             };
             if let Some(_edit_menu) = ui.begin_menu("Edit") {
                 if ui.menu_item_config("Undo").shortcut("Ctrl+Z").build() {
-                    self.project.undo().unwrap_or_else(|e| {
+                    self.project.undo(self.date_offset).unwrap_or_else(|e| {
                         gui_log!(self, "Failed to undo: {e}");
                     });
                 }
                 if ui.menu_item_config("Redo").shortcut("Ctrl+Y").build() {
-                    self.project.redo().unwrap_or_else(|e| {
+                    self.project.redo(self.date_offset).unwrap_or_else(|e| {
                         gui_log!(self, "Failed to redo: {e}");
                     });
                 }
@@ -273,7 +273,7 @@ impl Gui {
                             ui.close_current_popup();
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::CreateTeam {
                                 name: self.team_input_text_buffer.clone(),
-                            }}).unwrap();
+                            }}, self.date_offset).unwrap();
                             self.team_input_text_buffer.clear();
                         }
                     }
@@ -314,7 +314,7 @@ impl Gui {
                                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddMilestone {
                                     title: self.milestone_input_text_buffer.clone(),
                                     date: NaiveDate::parse_from_str(&self.milestone_date_input_text_buffer, "%Y-%m-%d").unwrap(),
-                                }}).unwrap();
+                                }}, self.date_offset).unwrap();
                                 self.milestone_input_text_buffer.clear();
                             }
                         }
@@ -326,7 +326,7 @@ impl Gui {
                             if ui.menu_item(&milestone_label) {
                                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveMilestone {
                                     title: milestone.title.clone(),
-                                }}).unwrap();
+                                }}, self.date_offset).unwrap();
                             }
                         }
                     }
@@ -376,7 +376,7 @@ impl Gui {
                                 name: filter.name.clone(),
                                 labels: label_names,
                                 is_favorite: filter.is_favorite,
-                            }}).unwrap();
+                            }}, self.date_offset).unwrap();
                             self.selected_filter = Some(*filter_id);
                         }
                     }
@@ -395,7 +395,7 @@ impl Gui {
                                 .map(|label| label.name.clone())
                                 .collect(),
                             is_favorite: false,
-                        }}).unwrap();
+                        }}, self.date_offset).unwrap();
                         let filter_id = self.project.flow_state().filters.iter()
                             .find(|(_, f)| f.name == self.filter_input_text_buffer)
                             .map(|(id, _)| *id);
@@ -409,7 +409,7 @@ impl Gui {
                         if ui.menu_item(&filter.name) {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeleteFilter {
                                 name: filter.name.clone(),
-                            }}).unwrap();
+                            }}, self.date_offset).unwrap();
                             if is_selected {
                                 self.selected_filter = None;
                                 self.filtered_labels.clear();
@@ -428,7 +428,7 @@ impl Gui {
                                     .map(|label| label.name.clone())
                                     .collect(),
                                 is_favorite: !is_favorite,
-                            }}).unwrap();
+                            }}, self.date_offset).unwrap();
                         }
                     }
                 }
@@ -470,9 +470,12 @@ impl Gui {
         if self.gui_config.debug_mode {
             ui.same_line();
             ui.set_next_item_width(80.0);
-            ui.input_int("##date_offset_input", &mut self.date_offset)
-                        .step(1)
-                        .build();
+            if ui.input_int("##date_offset_input", &mut self.date_offset)
+                .step(1)
+                .build()
+            {
+                self.project.flow_state_mut().rebuild_cache(self.date_offset);
+            }
         }
 
         for (filter_id, filter) in &self.project.flow_state().filters {
@@ -1323,7 +1326,7 @@ impl Gui {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RenameTeam {
                             old_name: team.name.clone(),
                             new_name: self.team_input_text_buffer.clone(),
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to rename team: {e}");
                         });
                         self.team_input_text_buffer.clear();
@@ -1333,7 +1336,7 @@ impl Gui {
             if ui.menu_item("Delete Team") {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeleteTeam {
                     name: team.name.clone(),
-                }}).unwrap_or_else(|e| {
+                }}, self.date_offset).unwrap_or_else(|e| {
                     eprintln!("Failed to delete team: {e}");
                 });
             }
@@ -1358,7 +1361,7 @@ impl Gui {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::CreateResource {
                             name: self.resource_input_text_buffer.clone(),
                             team_name: team.name.clone(),
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to create resource: {e}");
                         });
                         self.resource_input_text_buffer.clear();
@@ -1437,7 +1440,7 @@ impl Gui {
                             }
                             self.project.invoke_command(Command { timestamp, details: CommandDetails::CompoundCommand {
                                 commands,
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 eprintln!("Failed to assign task: {e}");
                             });
                             self.task_title_input_text_buffer.clear();
@@ -1466,7 +1469,7 @@ impl Gui {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RenameResource {
                             old_name: resource.name.clone(),
                             new_name: self.resource_input_text_buffer.clone(),
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to rename resource: {e}");
                         });
                         self.resource_input_text_buffer.clear();
@@ -1476,7 +1479,7 @@ impl Gui {
             if ui.menu_item("Delete Resource") {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeleteResource {
                     name: resource.name.clone(),
-                }}).unwrap_or_else(|e| {
+                }}, self.date_offset).unwrap_or_else(|e| {
                     eprintln!("Failed to delete resource: {e}");
                 });
             }
@@ -1544,7 +1547,7 @@ impl Gui {
                             resource_name: resource.name.clone(),
                             start_date: *day,
                             days: absence_duration,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             gui_log!(self, "Failed to add Absence: {e}");
                         });
                         self.absence_duration_days = 0.0;
@@ -1560,7 +1563,7 @@ impl Gui {
                             days: 0,
                             fraction: 0,
                         },
-                    }}).unwrap_or_else(|e| {
+                    }}, self.date_offset).unwrap_or_else(|e| {
                         gui_log!(self, "Failed to remove Absence: {e}");
                     });
                 }
@@ -1575,7 +1578,7 @@ impl Gui {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::PrioritizeTask {
                     task_id: *task_id,
                     to_top: true
-                }}).unwrap_or_else(|e| {
+                }}, self.date_offset).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to move task to top: {e}");
                 });
             }
@@ -1584,7 +1587,7 @@ impl Gui {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::PrioritizeTask {
                     task_id: *task_id,
                     to_top: false
-                }}).unwrap_or_else(|e| {
+                }}, self.date_offset).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to move task up: {e}");
                 });
             }
@@ -1593,7 +1596,7 @@ impl Gui {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeprioritizeTask {
                     task_id: *task_id,
                     to_bottom: false
-                }}).unwrap_or_else(|e| {
+                }}, self.date_offset).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to move task down: {e}");
                 });
             }
@@ -1602,7 +1605,7 @@ impl Gui {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeprioritizeTask {
                     task_id: *task_id,
                     to_bottom: true
-                }}).unwrap_or_else(|e| {
+                }}, self.date_offset).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to move task to bottom: {e}");
                 });
             }
@@ -1615,7 +1618,7 @@ impl Gui {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
                             task_id: *task_id,
                             resource_name: resource.name,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             gui_log!(self, "Failed to assign task to resource: {e}");
                         });
                     }
@@ -1624,7 +1627,7 @@ impl Gui {
             if ui.menu_item("Unassign") {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UnassignTask {
                     task_id: *task_id,
-                }}).unwrap_or_else(|e| {
+                }}, self.date_offset).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to unassign task: {e}");
                 });
                 ui.close_current_popup();
@@ -1640,14 +1643,14 @@ impl Gui {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to unwatch task: {e}");
                             });
                         } else {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to watch task: {e}");
                             });
                         }
@@ -1708,7 +1711,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                         self.task_title_input_text_buffer.clear();
@@ -1729,14 +1732,14 @@ impl Gui {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveLabelFromTask {
                                 task_id: *task_id,
                                 label_name: label.name.clone(),
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to remove label from task: {e}");
                             });
                         } else {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddLabelToTask {
                                 task_id: *task_id,
                                 label_name: label.name.clone(),
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to add label to task: {e}");
                             });
                         }
@@ -1762,7 +1765,7 @@ impl Gui {
                                         label_name: self.label_input_text_buffer.clone(),
                                     }}
                                 ]
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to create label and add to task: {e}");
                             });
                             self.label_input_text_buffer.clear();
@@ -1788,7 +1791,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -1816,7 +1819,7 @@ impl Gui {
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
                             duration: new_duration_days,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -1835,7 +1838,7 @@ impl Gui {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
                             task_id: *task_id,
                             resource_name: resource.name,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             gui_log!(self, "Failed to assign task to resource: {e}");
                         });
                     }
@@ -1845,7 +1848,7 @@ impl Gui {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveWatcher {
                     task_id: *task_id,
                     resource_name: resource.name.clone(),
-                }}).unwrap_or_else(|e| {
+                }}, self.date_offset).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to unwatch task: {e}");
                 });
                 ui.close_current_popup();
@@ -1861,14 +1864,14 @@ impl Gui {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to unwatch task: {e}");
                             });
                         } else {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to watch task: {e}");
                             });
                         }
@@ -1926,7 +1929,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                         self.task_title_input_text_buffer.clear();
@@ -1947,14 +1950,14 @@ impl Gui {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveLabelFromTask {
                                 task_id: *task_id,
                                 label_name: label.name.clone(),
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to remove label from task: {e}");
                             });
                         } else {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddLabelToTask {
                                 task_id: *task_id,
                                 label_name: label.name.clone(),
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to add label to task: {e}");
                             });
                         }
@@ -1980,7 +1983,7 @@ impl Gui {
                                         label_name: self.label_input_text_buffer.clone(),
                                     }}
                                 ]
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to create label and add to task: {e}");
                             });
                             self.label_input_text_buffer.clear();
@@ -2007,7 +2010,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2035,7 +2038,7 @@ impl Gui {
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
                             duration: new_duration_days,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2060,7 +2063,7 @@ impl Gui {
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: self.worklog_fraction,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2071,7 +2074,7 @@ impl Gui {
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: 0,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2083,7 +2086,7 @@ impl Gui {
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: 10,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2095,7 +2098,7 @@ impl Gui {
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: 25,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2107,7 +2110,7 @@ impl Gui {
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: 50,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2119,7 +2122,7 @@ impl Gui {
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: 75,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }                    
@@ -2131,7 +2134,7 @@ impl Gui {
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: 100,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2162,7 +2165,7 @@ impl Gui {
                                 date: *day,
                                 resource_name: resource.name.clone(),
                                 fraction: current_worklog_fraction + remaining_fraction as u8,
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 eprintln!("Failed to update task: {e}");
                             });
                         }
@@ -2186,7 +2189,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2217,7 +2220,7 @@ impl Gui {
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
                             duration: new_duration_days,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2237,7 +2240,7 @@ impl Gui {
                                 ticket: task.ticket.clone(),
                                 title: task.title.clone(),
                                 duration,
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 eprintln!("Failed to crop task: {e}");
                             });
                         }
@@ -2255,7 +2258,7 @@ impl Gui {
                                 ticket: task.ticket.clone(),
                                 title: task.title.clone(),
                                 duration,
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 eprintln!("Failed to crop task: {e}");
                             });
                         }
@@ -2331,7 +2334,7 @@ impl Gui {
                         }
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::CompoundCommand {
                             commands,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to create task: {e}");
                         });
                         self.task_title_input_text_buffer.clear();
@@ -2351,7 +2354,7 @@ impl Gui {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
                             task_id: *task_id,
                             resource_name: resource.name,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             gui_log!(self, "Failed to assign task to resource: {e}");
                         });
                     }
@@ -2368,14 +2371,14 @@ impl Gui {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to unwatch task: {e}");
                             });
                         } else {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
-                            }}).unwrap_or_else(|e| {
+                            }}, self.date_offset).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to watch task: {e}");
                             });
                         }
@@ -2386,7 +2389,7 @@ impl Gui {
             if ui.menu_item("Delete") {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeleteTask {
                     id: *task_id,
-                }}).unwrap_or_else(|e| {
+                }}, self.date_offset).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to delete task: {e}");
                 });
             }
@@ -2440,7 +2443,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                         self.task_title_input_text_buffer.clear();
@@ -2461,7 +2464,7 @@ impl Gui {
                                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddLabelToTask {
                                     task_id: *task_id,
                                     label_name: label.name.clone(),
-                                }}).unwrap_or_else(|e| {
+                                }}, self.date_offset).unwrap_or_else(|e| {
                                     gui_log!(self, "Failed to add label to task: {e}");
                                 });
                             }
@@ -2486,7 +2489,7 @@ impl Gui {
                                             label_name: self.label_input_text_buffer.clone(),
                                         }}
                                     ]
-                                }}).unwrap_or_else(|e| {
+                                }}, self.date_offset).unwrap_or_else(|e| {
                                     gui_log!(self, "Failed to create label and add to task: {e}");
                                 });
                                 self.label_input_text_buffer.clear();
@@ -2502,7 +2505,7 @@ impl Gui {
                                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveLabelFromTask {
                                     task_id: *task_id,
                                     label_name: label.name.clone(),
-                                }}).unwrap_or_else(|e| {
+                                }}, self.date_offset).unwrap_or_else(|e| {
                                     gui_log!(self, "Failed to remove label from task: {e}");
                                 });
                             }
@@ -2528,7 +2531,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2556,7 +2559,7 @@ impl Gui {
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
                             duration: new_duration_days,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2584,7 +2587,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2615,7 +2618,7 @@ impl Gui {
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
                             duration: new_duration_days,
-                        }}).unwrap_or_else(|e| {
+                        }}, self.date_offset).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2756,11 +2759,7 @@ impl Gui {
     }
 
     fn get_timestamp(&self) -> DateTime<Utc> {
-        if self.date_offset < 0 {
-            Utc::now() - chrono::Duration::days(self.date_offset.abs() as i64)
-        } else {
-            Utc::now() + chrono::Duration::days(self.date_offset.abs() as i64)
-        }
+        Utc::now() + chrono::Duration::days(self.date_offset as i64)
     }
 }
 
