@@ -1409,7 +1409,7 @@ impl FlowStateCache {
             }
         }
         let mut unassigned_task_alloc_rendering: HashMap<TaskId, HashMap<NaiveDate, Fraction>> = HashMap::new();
-        let today = Utc::now().date_naive();
+        let today = chrono::Utc::now().date_naive() + chrono::Duration::days(date_offset as i64);
         for task_id in &unassigned_tasks {
             let mut remaining_alloc = remaining_durations.get(task_id)
                 .cloned()
