@@ -427,9 +427,9 @@ impl Project {
         Ok(())
     }
 
-    pub fn invoke_command(&mut self, command: Command) -> Result<(), String> {
+    pub fn invoke_command(&mut self, command: Command, date_offset: i32) -> Result<(), String> {
         println!("Invoking command: {:?}", command);
-        let undo_command = self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command.clone())?;
+        let undo_command = self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command.clone(), date_offset)?;
         self.append_to_command_history(CommandRecord {
             undo_command,
             redo_command: command,
@@ -438,25 +438,25 @@ impl Project {
         Ok(())
     }
 
-    pub fn undo(&mut self) -> Result<(), String> {
+    pub fn undo(&mut self, date_offset: i32) -> Result<(), String> {
         if self.num_commands_applied == 0 {
             return Err("No commands to undo".to_string());
         }
         let command_record = &self.command_stack[self.num_commands_applied - 1];
         println!("Command for undo: {:?}", command_record.undo_command);
-        self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command_record.undo_command.clone())?;
+        self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command_record.undo_command.clone(), date_offset)?;
         self.num_commands_applied -= 1;
         self.save_to_yaml()?;
         Ok(())
     }
 
-    pub fn redo(&mut self) -> Result<(), String> {
+    pub fn redo(&mut self, date_offset: i32) -> Result<(), String> {
         if self.num_commands_applied >= self.command_stack.len() {
             return Err("No commands to redo".to_string());
         }
         let command_record = &self.command_stack[self.num_commands_applied];
         println!("Command for redo: {:?}", command_record.redo_command);
-        self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command_record.redo_command.clone())?;
+        self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command_record.redo_command.clone(), date_offset)?;
         self.num_commands_applied += 1;
         self.save_to_yaml()?;
         Ok(())
@@ -516,7 +516,7 @@ impl FlowState {
             next_label_id: 1,
             next_filter_id: 1,
         };
-        flow_state.rebuild_cache();
+        flow_state.rebuild_cache(0);
         flow_state
     }
 
@@ -525,7 +525,7 @@ impl FlowState {
         for command in commands {
             flow_state.execute_command_and_generate_inverse(command.clone())?;
         }
-        flow_state.rebuild_cache();
+        flow_state.rebuild_cache(0);
         flow_state.reset_ids();
         Ok(flow_state)
     }
@@ -1164,14 +1164,14 @@ impl FlowState {
         }
     }
 
-    fn execute_command_generate_inverse_and_rebuild_cache(&mut self, command: Command) -> Result<Command, String> {
+    fn execute_command_generate_inverse_and_rebuild_cache(&mut self, command: Command, date_offset: i32) -> Result<Command, String> {
         let undo_command = self.execute_command_and_generate_inverse(command)?;
-        self.rebuild_cache();
+        self.rebuild_cache(date_offset);
         Ok(undo_command)
     }
 
-    fn rebuild_cache(&mut self) {
-        self.flow_state_cache = FlowStateCache::from(self);
+    pub fn rebuild_cache(&mut self, date_offset: i32) {
+        self.flow_state_cache = FlowStateCache::from(self, date_offset);
     }
 
     fn reset_ids(&mut self) {
@@ -1243,9 +1243,9 @@ pub struct AllocCursor {
 }
 
 impl AllocCursor {
-    fn new() -> Self {
+    fn new(date_offset: i32) -> Self {
         let mut cursor = AllocCursor {
-            date: Utc::now().date_naive(),
+            date: Utc::now().date_naive() + Duration::days(date_offset as i64),
             alloced_amount: TaskDuration { days: 0, fraction: 0 },
         };
         cursor.if_weekend_advance_to_monday();
@@ -1310,7 +1310,7 @@ impl FlowStateCache {
         }
     }
 
-    fn from(flow_state: &FlowState) -> Self {
+    fn from(flow_state: &FlowState, date_offset: i32) -> Self {
         let resource_absence_rendering: HashMap<ResourceId, HashMap<NaiveDate, Fraction>> = flow_state.resources.iter()
             .map(|(resource_id, resource)| {
                 let absence_map = {
@@ -1368,10 +1368,10 @@ impl FlowStateCache {
             })
             .collect();
 
-        let mut most_farther_alloc_date = chrono::Utc::now().date_naive();
+        let mut most_farther_alloc_date = chrono::Utc::now().date_naive() + chrono::Duration::days(date_offset as i64);
         let mut task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>> = HashMap::new();
         for (resource_id, resource) in &flow_state.resources {
-            let mut cursor = AllocCursor::new();
+            let mut cursor = AllocCursor::new(date_offset);
             for task_id in &resource.assigned_tasks {
                 if let Some(_task) = flow_state.tasks.get(task_id) {
                     let mut remaining_alloc = remaining_durations.get(task_id)
@@ -1508,7 +1508,7 @@ mod tests {
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
-        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } });
+        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } }, 0);
 
         assert!(result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == "Development"));
@@ -1520,11 +1520,11 @@ mod tests {
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
-        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } });
+        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } }, 0);
         assert!(result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == "Development"));
 
-        let undo_result = app.undo();
+        let undo_result = app.undo(0);
         assert!(undo_result.is_ok());
         assert!(!app.flow_state.teams.values().any(|team| team.name == "Development"));
     }
@@ -1535,15 +1535,15 @@ mod tests {
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
-        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } });
+        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } }, 0);
         assert!(result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == "Development"));
 
-        let undo_result = app.undo();
+        let undo_result = app.undo(0);
         assert!(undo_result.is_ok());
         assert!(!app.flow_state.teams.values().any(|team| team.name == "Development"));
 
-        let redo_result = app.redo();
+        let redo_result = app.redo(0);
         assert!(redo_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == "Development"));
     }
@@ -1555,15 +1555,15 @@ mod tests {
         let team_name = "Development".to_string();
         let new_team_name = "Engineering".to_string();
 
-        let create_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } });
+        let create_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } }, 0);
         assert!(create_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == team_name));
 
-        let rename_result = app.invoke_command(Command { timestamp, details: CommandDetails::RenameTeam { old_name: team_name.clone(), new_name: new_team_name.clone() } });
+        let rename_result = app.invoke_command(Command { timestamp, details: CommandDetails::RenameTeam { old_name: team_name.clone(), new_name: new_team_name.clone() } }, 0);
         assert!(rename_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == new_team_name));
 
-        let delete_result = app.invoke_command(Command { timestamp, details: CommandDetails::DeleteTeam { name: new_team_name.clone() } });
+        let delete_result = app.invoke_command(Command { timestamp, details: CommandDetails::DeleteTeam { name: new_team_name.clone() } }, 0);
         assert!(delete_result.is_ok());
         assert!(!app.flow_state.teams.values().any(|team| team.name == new_team_name));
     }
@@ -1576,26 +1576,26 @@ mod tests {
         let resource_name = "Alice".to_string();
         let new_team_name = "Engineering".to_string();
 
-        let create_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } });
+        let create_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } }, 0);
         assert!(create_team_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == team_name));
 
-        let create_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateResource { name: resource_name.clone(), team_name: team_name.clone() } });
+        let create_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateResource { name: resource_name.clone(), team_name: team_name.clone() } }, 0);
         assert!(create_resource_result.is_ok());
         assert!(app.flow_state.resources.values().any(|res| res.name == resource_name));
 
-        let rename_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::RenameTeam { old_name: team_name.clone(), new_name: new_team_name.clone() } });
+        let rename_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::RenameTeam { old_name: team_name.clone(), new_name: new_team_name.clone() } }, 0);
         assert!(rename_team_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == new_team_name));
 
-        let switch_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::SwitchTeam { resource_name: resource_name.clone(), new_team_name: new_team_name.clone() } });
+        let switch_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::SwitchTeam { resource_name: resource_name.clone(), new_team_name: new_team_name.clone() } }, 0);
         assert!(switch_team_result.is_ok());
         
         if let Some(resource) = app.flow_state.resources.get(&1) {
             assert_eq!(resource.team_id, 1); // Assuming the new team's ID is 1
         }
 
-        let delete_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::DeleteResource { name: resource_name.clone() } });
+        let delete_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::DeleteResource { name: resource_name.clone() } }, 0);
         assert!(delete_resource_result.is_ok());
         assert!(!app.flow_state.resources.values().any(|res| res.name == resource_name));
     }
@@ -1616,15 +1616,15 @@ mod tests {
                 ticket,
                 title: title.clone(),
                 duration,
-            }});
+            }}, 0);
         assert!(create_task_result.is_ok());
         assert!(app.flow_state.tasks.values().any(|task| task.title == title));
 
-        let undo_result = app.undo();
+        let undo_result = app.undo(0);
         assert!(undo_result.is_ok());
         assert!(!app.flow_state.tasks.values().any(|task| task.title == title));
 
-        let redo_result = app.redo();
+        let redo_result = app.redo(0);
         assert!(redo_result.is_ok());
         assert!(app.flow_state.tasks.values().any(|task| task.title == title));
     }
@@ -1637,12 +1637,12 @@ mod tests {
         let resource_name = "Alice".to_string();
 
         // Create a team
-        let create_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } });
+        let create_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } }, 0);
         assert!(create_team_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == team_name));
 
         // Create a resource in the team
-        let create_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateResource { name: resource_name.clone(), team_name: team_name.clone() } });
+        let create_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateResource { name: resource_name.clone(), team_name: team_name.clone() } }, 0);
         assert!(create_resource_result.is_ok());
         assert!(app.flow_state.resources.values().any(|res| res.name == resource_name));
 
@@ -1690,14 +1690,14 @@ struct TaskInspector {
 }
 
 impl TaskInspector {
-    fn new(inspected_task_id: TaskId, commands: Vec<Command>) -> Self {
+    fn new(inspected_task_id: TaskId, commands: Vec<Command>, date_offset: i32) -> Self {
         let mut allocations: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>> = HashMap::new();
         let mut absences: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>> = HashMap::new();
         let mut worklogs: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>> = HashMap::new();
         let mut assignee: HashMap<NaiveDate, Option<ResourceId>> = HashMap::new();
         let mut flow_state = FlowState::new();
         for cmd in &commands {
-            flow_state.execute_command_generate_inverse_and_rebuild_cache(cmd.clone()).unwrap();
+            flow_state.execute_command_generate_inverse_and_rebuild_cache(cmd.clone(), date_offset).unwrap();
             let date = cmd.timestamp.date_naive();
             if let Some(inspected_task) = flow_state.tasks.get(&inspected_task_id) {
                 if let Some(inspected_task_assignee) = inspected_task.assignee {
