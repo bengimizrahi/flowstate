@@ -1,5 +1,5 @@
-
 use crate::app::*;
+use crate::app::TaskInspector;
 use crate::gui;
 use crate::support;
 use imgui::sys::igGetCursorScreenPos;
@@ -27,6 +27,7 @@ pub struct Gui {
 
     filtered_labels: Vec<LabelId>,
     selected_filter: Option<FilterId>,
+    inspections: Vec<TaskInspector>,
 
     drag_drop_task_id: Option<TaskId>,
     date_offset: i32,
@@ -80,6 +81,7 @@ impl Gui {
 
             filtered_labels: Vec::new(),
             selected_filter: None,
+            inspections: Vec::new(),
 
             drag_drop_task_id: None,
             date_offset: 0,
@@ -497,6 +499,9 @@ impl Gui {
             if let Some(_task_tab_item) = ui.tab_item("Tasks") {
                 self.draw_gantt_chart_tasks(ui);
             }
+            for inspector in self.inspections.clone() {
+                self.draw_inspection_tab(ui, &inspector);
+            }
             if let Some(_debug_tab_item) = ui.tab_item("Debug") {
                 self.draw_debug(ui);
             }
@@ -558,9 +563,9 @@ impl Gui {
     }
 
     fn draw_gantt_chart_calendar_row(&mut self, ui: &Ui) {
-        let mut table_data = TableColumnSetup::new("Calendar");
-        table_data.flags = TableColumnFlags::NO_HIDE | TableColumnFlags::NO_REORDER;
-        ui.table_setup_column_with(table_data);
+        let mut table_column_data = TableColumnSetup::new("Calendar");
+        table_column_data.flags = TableColumnFlags::NO_HIDE | TableColumnFlags::NO_REORDER;
+        ui.table_setup_column_with(table_column_data);
         for i in 0..self.project.flow_state().cache().num_days() {
             let day: chrono::NaiveDate = self.project.flow_state().cache().day(i);
             let day_str = day.format("%m/%d").to_string();
@@ -578,11 +583,8 @@ impl Gui {
         unsafe {imgui::sys::igTableAngledHeadersRow();}
         ui.table_headers_row();
 
-        let today = if self.date_offset < 0 {
-            chrono::Local::now().date_naive() - chrono::Days::new(self.date_offset.abs() as u64)
-        } else {
-            chrono::Local::now().date_naive() + chrono::Days::new(self.date_offset.abs() as u64)
-        };
+       
+        let today = self.get_timestamp().date_naive();
         for i in 0..self.project.flow_state().cache().num_days() {
             let day: chrono::NaiveDate = self.project.flow_state().cache().day(i);
             if day == today {
@@ -1658,9 +1660,6 @@ impl Gui {
                 }
             }
             ui.separator();
-            ui.disabled(true, || {
-                ui.menu_item("Delete");
-            });
             if let Some(_update_task_menu) = ui.begin_menu("Update Task") {
                 let is_info_filled_in =
                         |task_title: &str, ticket: &str, duration: f32| {
@@ -1717,6 +1716,10 @@ impl Gui {
                         self.task_title_input_text_buffer.clear();
                     }
                 }
+            }
+            if ui.menu_item("Inspect") {
+                self.inspections.push(TaskInspector::new(*task_id, self.project.command_stack.iter().map(|cr| cr.redo_command.clone()).collect::<Vec<_>>(), self.date_offset));
+                ui.close_current_popup();
             }
             if ui.menu_item("Open in JIRA") {
                 self.open_task_in_jira(ui, &task);
@@ -2760,6 +2763,77 @@ impl Gui {
 
     fn get_timestamp(&self) -> DateTime<Utc> {
         Utc::now() + chrono::Duration::days(self.date_offset as i64)
+    }
+
+    fn draw_inspection_tab(&mut self, ui: &Ui, inspector: &TaskInspector) {
+        let task = self.project.flow_state().tasks.get(&inspector.task_id).unwrap();
+        let task_label = format!("{} - {}", 
+            task.ticket,
+            task.title.chars().take(20).collect::<String>()
+        );
+        if let Some(_res_tab_item) = ui.tab_item(task_label) {
+            let _id = ui.push_id_usize(inspector.task_id as usize);
+            if self.draw_inspection_table(ui, "##inspection_gantt_chart") {
+                self.draw_inspection_calendar_row(ui);
+                self.draw_gantt_chart_milestones_row(ui);
+                // self.draw_gantt_chart_resources_contents(ui);
+                unsafe {imgui::sys::igEndTable();}
+            }
+        }
+    }
+
+    fn draw_inspection_table(&mut self, ui: &Ui, id: &str) -> bool {
+        let table_id = std::ffi::CString::new(id).unwrap();
+        let flags = imgui::sys::ImGuiTableFlags_Borders
+            | imgui::sys::ImGuiTableFlags_HighlightHoveredColumn
+            | imgui::sys::ImGuiTableFlags_SizingFixedFit
+            | imgui::sys::ImGuiTableFlags_ScrollX
+            | imgui::sys::ImGuiTableFlags_ScrollY
+            | imgui::sys::ImGuiTableFlags_Resizable
+            | imgui::sys::ImGuiTableFlags_NoPadOuterX
+            | imgui::sys::ImGuiTableFlags_NoPadInnerX;
+        let num_columns = self.project.flow_state().cache().num_days() + 2;
+        unsafe {imgui::sys::igBeginTable(
+            table_id.as_ptr(),
+            num_columns as i32,
+            flags as i32,
+            imgui::sys::ImVec2 { x: 0.0, y: 0.0 },
+            0.0,
+        )}
+    }
+
+    fn draw_inspection_calendar_row(&mut self, ui: &Ui) {
+        let mut table_1st_column_data = TableColumnSetup::new("Calendar");
+        table_1st_column_data.flags = TableColumnFlags::NO_HIDE | TableColumnFlags::NO_REORDER;
+        ui.table_setup_column_with(table_1st_column_data);
+        let mut table_2nd_column_data = TableColumnSetup::new("Assignee");
+        table_2nd_column_data.flags = TableColumnFlags::NO_HIDE | TableColumnFlags::NO_REORDER;
+        ui.table_setup_column_with(table_2nd_column_data);
+        for i in 0..self.project.flow_state().cache().num_days() {
+            let day: chrono::NaiveDate = self.project.flow_state().cache().day(i);
+            let day_str = day.format("%m/%d").to_string();
+            let day_cstr = std::ffi::CString::new(day_str).unwrap();
+            unsafe {imgui::sys::igTableSetupColumn(
+                day_cstr.as_ptr(),
+                (imgui::sys::ImGuiTableColumnFlags_AngledHeader
+                    | imgui::sys::ImGuiTableColumnFlags_WidthFixed
+                    | imgui::sys::ImGuiTableColumnFlags_NoResize) as i32,
+                0.0,
+                0,
+            );}
+        }
+        unsafe {imgui::sys::igTableSetupScrollFreeze(2, 4);}
+        unsafe {imgui::sys::igTableAngledHeadersRow();}
+        ui.table_headers_row();
+
+        let today = self.get_timestamp().date_naive();
+        for i in 0..self.project.flow_state().cache().num_days() {
+            let day: chrono::NaiveDate = self.project.flow_state().cache().day(i);
+            if day == today {
+                let pink = [1.0, 0.75, 0.8, 1.0];
+                ui.table_set_bg_color_with_column(TableBgTarget::CELL_BG, pink, i + 2);
+            }
+        }
     }
 }
 

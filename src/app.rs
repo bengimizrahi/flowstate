@@ -231,9 +231,9 @@ pub enum CommandDetails {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct CommandRecord {
+pub struct CommandRecord {
     undo_command: Command,
-    redo_command: Command,
+    pub redo_command: Command,
 }
 
 pub type TeamId = u64;
@@ -385,7 +385,7 @@ pub struct Milestone {
 pub struct Project {
     #[serde(skip)]
     filename: Option<String>,
-    command_stack: Vec<CommandRecord>,
+    pub command_stack: Vec<CommandRecord>,
     num_commands_applied: usize,
     #[serde(skip)]
     flow_state: FlowState,
@@ -1675,22 +1675,23 @@ mod tests {
 
     #[test]
     fn test_alloc_cursor_add_assign_task_duration() {
-        let mut cursor = AllocCursor::new();
+        let mut cursor = AllocCursor::new(0);
         cursor += TaskDuration { days: 0, fraction: 50 };
         assert_eq!(cursor.alloced_amount, TaskDuration { days: 0, fraction: 50 });
     }
 }
 
-struct TaskInspector {
-    task_id: TaskId,
-    allocations: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
-    absences: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
-    worklogs: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
-    assignee: HashMap<NaiveDate, Option<ResourceId>>,
+#[derive(Debug, Clone)]
+pub struct TaskInspector {
+    pub task_id: TaskId,
+    pub allocations: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
+    pub absences: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
+    pub worklogs: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
+    pub assignee: HashMap<NaiveDate, Option<ResourceId>>,
 }
 
 impl TaskInspector {
-    fn new(inspected_task_id: TaskId, commands: Vec<Command>, date_offset: i32) -> Self {
+    pub fn new(inspected_task_id: TaskId, commands: Vec<Command>, date_offset: i32) -> Self {
         let mut allocations: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>> = HashMap::new();
         let mut absences: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>> = HashMap::new();
         let mut worklogs: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>> = HashMap::new();
