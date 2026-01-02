@@ -1,5 +1,5 @@
 use crate::app::*;
-use crate::app::TaskInspector;
+use crate::app::TaskInspection;
 use crate::gui;
 use crate::support;
 use imgui::sys::igGetCursorScreenPos;
@@ -27,7 +27,7 @@ pub struct Gui {
 
     filtered_labels: Vec<LabelId>,
     selected_filter: Option<FilterId>,
-    inspections: Vec<TaskInspector>,
+    inspections: Vec<TaskInspection>,
 
     drag_drop_task_id: Option<TaskId>,
     date_offset: i32,
@@ -163,12 +163,13 @@ impl Gui {
 
     fn draw_menu_bar(&mut self, ui: &Ui) {
         if ui.is_key_pressed(Key::Z) && ui.io().key_ctrl {
-            self.project.undo(self.date_offset).unwrap_or_else(|e| {
+            /* let date = today as NaiveDate */
+            self.project.undo(self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                 gui_log!(self, "Failed to undo: {e}");
             });
         }
         if ui.is_key_pressed(Key::Y) && ui.io().key_ctrl {
-            self.project.redo(self.date_offset).unwrap_or_else(|e| {
+            self.project.redo(self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                 gui_log!(self, "Failed to redo: {e}");
             });
         }
@@ -245,12 +246,12 @@ impl Gui {
             };
             if let Some(_edit_menu) = ui.begin_menu("Edit") {
                 if ui.menu_item_config("Undo").shortcut("Ctrl+Z").build() {
-                    self.project.undo(self.date_offset).unwrap_or_else(|e| {
+                    self.project.undo(self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                         gui_log!(self, "Failed to undo: {e}");
                     });
                 }
                 if ui.menu_item_config("Redo").shortcut("Ctrl+Y").build() {
-                    self.project.redo(self.date_offset).unwrap_or_else(|e| {
+                    self.project.redo(self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                         gui_log!(self, "Failed to redo: {e}");
                     });
                 }
@@ -275,7 +276,7 @@ impl Gui {
                             ui.close_current_popup();
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::CreateTeam {
                                 name: self.team_input_text_buffer.clone(),
-                            }}, self.date_offset).unwrap();
+                            }}, self.get_timestamp().date_naive()).unwrap();
                             self.team_input_text_buffer.clear();
                         }
                     }
@@ -316,7 +317,7 @@ impl Gui {
                                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddMilestone {
                                     title: self.milestone_input_text_buffer.clone(),
                                     date: NaiveDate::parse_from_str(&self.milestone_date_input_text_buffer, "%Y-%m-%d").unwrap(),
-                                }}, self.date_offset).unwrap();
+                                }}, self.get_timestamp().date_naive()).unwrap();
                                 self.milestone_input_text_buffer.clear();
                             }
                         }
@@ -328,7 +329,7 @@ impl Gui {
                             if ui.menu_item(&milestone_label) {
                                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveMilestone {
                                     title: milestone.title.clone(),
-                                }}, self.date_offset).unwrap();
+                                }}, self.get_timestamp().date_naive()).unwrap();
                             }
                         }
                     }
@@ -378,7 +379,7 @@ impl Gui {
                                 name: filter.name.clone(),
                                 labels: label_names,
                                 is_favorite: filter.is_favorite,
-                            }}, self.date_offset).unwrap();
+                            }}, self.get_timestamp().date_naive()).unwrap();
                             self.selected_filter = Some(*filter_id);
                         }
                     }
@@ -397,7 +398,7 @@ impl Gui {
                                 .map(|label| label.name.clone())
                                 .collect(),
                             is_favorite: false,
-                        }}, self.date_offset).unwrap();
+                        }}, self.get_timestamp().date_naive()).unwrap();
                         let filter_id = self.project.flow_state().filters.iter()
                             .find(|(_, f)| f.name == self.filter_input_text_buffer)
                             .map(|(id, _)| *id);
@@ -411,7 +412,7 @@ impl Gui {
                         if ui.menu_item(&filter.name) {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeleteFilter {
                                 name: filter.name.clone(),
-                            }}, self.date_offset).unwrap();
+                            }}, self.get_timestamp().date_naive()).unwrap();
                             if is_selected {
                                 self.selected_filter = None;
                                 self.filtered_labels.clear();
@@ -430,7 +431,7 @@ impl Gui {
                                     .map(|label| label.name.clone())
                                     .collect(),
                                 is_favorite: !is_favorite,
-                            }}, self.date_offset).unwrap();
+                            }}, self.get_timestamp().date_naive()).unwrap();
                         }
                     }
                 }
@@ -476,7 +477,8 @@ impl Gui {
                 .step(1)
                 .build()
             {
-                self.project.flow_state_mut().rebuild_cache(self.date_offset);
+                let timestamp = self.get_timestamp().date_naive();
+                self.project.flow_state_mut().rebuild_cache(timestamp);
             }
         }
 
@@ -499,8 +501,8 @@ impl Gui {
             if let Some(_task_tab_item) = ui.tab_item("Tasks") {
                 self.draw_gantt_chart_tasks(ui);
             }
-            for inspector in self.inspections.clone() {
-                self.draw_inspection_tab(ui, &inspector);
+            for inspection in self.inspections.clone() {
+                self.draw_inspection_tab(ui, &inspection);
             }
             if let Some(_debug_tab_item) = ui.tab_item("Debug") {
                 self.draw_debug(ui);
@@ -783,19 +785,20 @@ impl Gui {
                 if !self.gui_config.hide_worklogs {
                     self.draw_worklog(ui, &day, resource_id, resource, task_id, &task);
                 }
-                self.draw_alloc(ui, &day, Some(resource_id), task_id, &task);
+                
+                let absence = self.project.flow_state().cache().resource_absence_rendering.get(resource_id)
+                    .and_then(|r| r.get(&day)).copied();
+                let worklog = self.project.flow_state().worklogs.get(task_id)
+                    .and_then(|r| r.get(resource_id))
+                    .and_then(|r| r.get(&day)).cloned();
+                let alloc = 
+                    self.project.flow_state().cache().task_alloc_rendering.get(task_id)
+                        .and_then(|r| r.get(&day)).copied();
+                self.draw_alloc(ui, worklog.clone(), alloc);
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
                 self.draw_gantt_chart_resources_team_resource_task_content_popup(ui, resource_id, &resource, task_id, &task, &day);
                 if ui.is_item_hovered() {
-                    let absence = self.project.flow_state().cache().resource_absence_rendering.get(resource_id)
-                            .and_then(|r| r.get(&day));
-                    let worklog = self.project.flow_state().worklogs.get(&task_id)
-                            .and_then(|r| r.get(&resource_id))
-                            .and_then(|r| r.get(&day));
-                    let alloc = self.project.flow_state().cache().task_alloc_rendering.get(task_id)
-                            .and_then(|r| r.get(&resource_id))
-                            .and_then(|r| r.get(&day));
                     if absence.is_some() || worklog.is_some() || alloc.is_some() {
                         let _tooltip = ui.begin_tooltip();
                         if let Some(absence) = absence {
@@ -912,7 +915,11 @@ impl Gui {
                 let _day_token_id = ui.push_id_usize(i);
                 let day = self.project.flow_state().cache().day(i - 1);
                 self.draw_cell_background(ui, &day);
-                self.draw_alloc(ui, &day, None, task_id, &task);
+            let alloc = 
+                self.project.flow_state().cache().task_alloc_rendering.get(task_id)
+                    .and_then(|r| r.get(&day)).copied();
+
+                self.draw_alloc(ui, None, alloc);
                 self.draw_milestone(ui, &day);
                 ui.invisible_button("##invisible_button", [-1.0, unsafe { igGetTextLineHeight() }]);
                 self.draw_gantt_chart_resources_team_unassigned_task_content_popup(ui, task_id, &task, &day);
@@ -989,23 +996,12 @@ impl Gui {
         }
     }
 
-    fn draw_alloc(&mut self, ui: &Ui, day: &NaiveDate, resource_id: Option<&ResourceId>, task_id: &TaskId, task: &Task) {
+    fn draw_alloc(&mut self, ui: &Ui, worklog: Option<Worklog>, alloc: Option<u8>) {
         let cell_height = unsafe { igGetTextLineHeight() };
         let cell_padding = unsafe { ui.style().cell_padding };
         let effective_cell_height = cell_height + (cell_padding[1]);
         let effective_cell_width = ui.current_column_width();
 
-        let worklog = self.project.flow_state().worklogs.get(task_id)
-            .and_then(|r| r.get(resource_id.unwrap_or(&0)))
-            .and_then(|r| r.get(day));
-        let alloc = if let Some(resource_id) = resource_id {
-            self.project.flow_state().cache().task_alloc_rendering.get(task_id)
-                .and_then(|r| r.get(resource_id))
-                .and_then(|r| r.get(day))
-        } else {
-            self.project.flow_state().cache().unassigned_task_alloc_rendering.get(task_id)
-                .and_then(|r| r.get(day))
-        };
         if let Some(alloc) = alloc {
             let cursor_pos = unsafe {
                 let mut pos = ImVec2 { x: 0.0, y: 0.0 };
@@ -1014,7 +1010,7 @@ impl Gui {
                 pos
             };
 
-            let alloc_height = effective_cell_height * (*alloc as f32 / 100.0);
+            let alloc_height = effective_cell_height * (alloc as f32 / 100.0);
             let worklog_height = if let Some(worklog) = worklog {
                 effective_cell_height * (worklog.fraction as f32) / 100.0
             } else {
@@ -1091,10 +1087,9 @@ impl Gui {
             .and_then(|r| r.get(day));
         let alloc = if let Some(resource_id) = resource_id {
             self.project.flow_state().cache().task_alloc_rendering.get(task_id)
-                .and_then(|r| r.get(resource_id))
                 .and_then(|r| r.get(day))
         } else {
-            self.project.flow_state().cache().unassigned_task_alloc_rendering.get(task_id)
+            self.project.flow_state().cache().task_alloc_rendering.get(task_id)
                 .and_then(|r| r.get(day))
         };
         if let Some(alloc) = alloc {
@@ -1328,7 +1323,7 @@ impl Gui {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RenameTeam {
                             old_name: team.name.clone(),
                             new_name: self.team_input_text_buffer.clone(),
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to rename team: {e}");
                         });
                         self.team_input_text_buffer.clear();
@@ -1338,7 +1333,7 @@ impl Gui {
             if ui.menu_item("Delete Team") {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeleteTeam {
                     name: team.name.clone(),
-                }}, self.date_offset).unwrap_or_else(|e| {
+                }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                     eprintln!("Failed to delete team: {e}");
                 });
             }
@@ -1363,7 +1358,7 @@ impl Gui {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::CreateResource {
                             name: self.resource_input_text_buffer.clone(),
                             team_name: team.name.clone(),
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to create resource: {e}");
                         });
                         self.resource_input_text_buffer.clear();
@@ -1442,7 +1437,7 @@ impl Gui {
                             }
                             self.project.invoke_command(Command { timestamp, details: CommandDetails::CompoundCommand {
                                 commands,
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 eprintln!("Failed to assign task: {e}");
                             });
                             self.task_title_input_text_buffer.clear();
@@ -1471,7 +1466,7 @@ impl Gui {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RenameResource {
                             old_name: resource.name.clone(),
                             new_name: self.resource_input_text_buffer.clone(),
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to rename resource: {e}");
                         });
                         self.resource_input_text_buffer.clear();
@@ -1481,7 +1476,7 @@ impl Gui {
             if ui.menu_item("Delete Resource") {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeleteResource {
                     name: resource.name.clone(),
-                }}, self.date_offset).unwrap_or_else(|e| {
+                }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                     eprintln!("Failed to delete resource: {e}");
                 });
             }
@@ -1549,7 +1544,7 @@ impl Gui {
                             resource_name: resource.name.clone(),
                             start_date: *day,
                             days: absence_duration,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             gui_log!(self, "Failed to add Absence: {e}");
                         });
                         self.absence_duration_days = 0.0;
@@ -1565,7 +1560,7 @@ impl Gui {
                             days: 0,
                             fraction: 0,
                         },
-                    }}, self.date_offset).unwrap_or_else(|e| {
+                    }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                         gui_log!(self, "Failed to remove Absence: {e}");
                     });
                 }
@@ -1580,7 +1575,7 @@ impl Gui {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::PrioritizeTask {
                     task_id: *task_id,
                     to_top: true
-                }}, self.date_offset).unwrap_or_else(|e| {
+                }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to move task to top: {e}");
                 });
             }
@@ -1589,7 +1584,7 @@ impl Gui {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::PrioritizeTask {
                     task_id: *task_id,
                     to_top: false
-                }}, self.date_offset).unwrap_or_else(|e| {
+                }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to move task up: {e}");
                 });
             }
@@ -1598,7 +1593,7 @@ impl Gui {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeprioritizeTask {
                     task_id: *task_id,
                     to_bottom: false
-                }}, self.date_offset).unwrap_or_else(|e| {
+                }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to move task down: {e}");
                 });
             }
@@ -1607,7 +1602,7 @@ impl Gui {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeprioritizeTask {
                     task_id: *task_id,
                     to_bottom: true
-                }}, self.date_offset).unwrap_or_else(|e| {
+                }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to move task to bottom: {e}");
                 });
             }
@@ -1620,7 +1615,7 @@ impl Gui {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
                             task_id: *task_id,
                             resource_name: resource.name,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             gui_log!(self, "Failed to assign task to resource: {e}");
                         });
                     }
@@ -1629,7 +1624,7 @@ impl Gui {
             if ui.menu_item("Unassign") {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::UnassignTask {
                     task_id: *task_id,
-                }}, self.date_offset).unwrap_or_else(|e| {
+                }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to unassign task: {e}");
                 });
                 ui.close_current_popup();
@@ -1645,14 +1640,14 @@ impl Gui {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to unwatch task: {e}");
                             });
                         } else {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to watch task: {e}");
                             });
                         }
@@ -1710,7 +1705,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                         self.task_title_input_text_buffer.clear();
@@ -1718,7 +1713,13 @@ impl Gui {
                 }
             }
             if ui.menu_item("Inspect") {
-                self.inspections.push(TaskInspector::new(*task_id, self.project.command_stack.iter().map(|cr| cr.redo_command.clone()).collect::<Vec<_>>(), self.date_offset));
+                self.inspections.push(TaskInspection::from(
+                        *task_id,
+                        self.project.command_stack.iter()
+                            .map(|cr| cr.redo_command.clone())
+                            .collect::<Vec<_>>(),
+                        self.get_timestamp().date_naive())
+                );
                 ui.close_current_popup();
             }
             if ui.menu_item("Open in JIRA") {
@@ -1735,14 +1736,14 @@ impl Gui {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveLabelFromTask {
                                 task_id: *task_id,
                                 label_name: label.name.clone(),
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to remove label from task: {e}");
                             });
                         } else {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddLabelToTask {
                                 task_id: *task_id,
                                 label_name: label.name.clone(),
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to add label to task: {e}");
                             });
                         }
@@ -1768,7 +1769,7 @@ impl Gui {
                                         label_name: self.label_input_text_buffer.clone(),
                                     }}
                                 ]
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to create label and add to task: {e}");
                             });
                             self.label_input_text_buffer.clear();
@@ -1794,7 +1795,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -1822,7 +1823,7 @@ impl Gui {
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
                             duration: new_duration_days,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -1841,7 +1842,7 @@ impl Gui {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
                             task_id: *task_id,
                             resource_name: resource.name,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             gui_log!(self, "Failed to assign task to resource: {e}");
                         });
                     }
@@ -1851,7 +1852,7 @@ impl Gui {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveWatcher {
                     task_id: *task_id,
                     resource_name: resource.name.clone(),
-                }}, self.date_offset).unwrap_or_else(|e| {
+                }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to unwatch task: {e}");
                 });
                 ui.close_current_popup();
@@ -1867,14 +1868,14 @@ impl Gui {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to unwatch task: {e}");
                             });
                         } else {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to watch task: {e}");
                             });
                         }
@@ -1932,7 +1933,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                         self.task_title_input_text_buffer.clear();
@@ -1953,14 +1954,14 @@ impl Gui {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveLabelFromTask {
                                 task_id: *task_id,
                                 label_name: label.name.clone(),
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to remove label from task: {e}");
                             });
                         } else {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddLabelToTask {
                                 task_id: *task_id,
                                 label_name: label.name.clone(),
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to add label to task: {e}");
                             });
                         }
@@ -1986,7 +1987,7 @@ impl Gui {
                                         label_name: self.label_input_text_buffer.clone(),
                                     }}
                                 ]
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to create label and add to task: {e}");
                             });
                             self.label_input_text_buffer.clear();
@@ -2013,7 +2014,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2041,7 +2042,7 @@ impl Gui {
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
                             duration: new_duration_days,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2061,83 +2062,91 @@ impl Gui {
                     ui.same_line();
                     if ui.button("Ok") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
+                        // Convert NaiveDate to DateTime<Utc> at midnight
+                        let timestamp = DateTime::from_naive_utc_and_offset((*day).and_hms_opt(0, 0, 0).unwrap(), Utc);
+                        self.project.invoke_command(Command { timestamp, details: CommandDetails::SetWorklog {
                             task_id: *task_id,
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: self.worklog_fraction,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
                     if ui.button("0%") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
+                        let timestamp = DateTime::from_naive_utc_and_offset((*day).and_hms_opt(0, 0, 0).unwrap(), Utc);
+                        self.project.invoke_command(Command { timestamp, details: CommandDetails::SetWorklog {
                             task_id: *task_id,
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: 0,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
                     ui.same_line();
                     if ui.button("10%") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
+                        let timestamp = DateTime::from_naive_utc_and_offset((*day).and_hms_opt(0, 0, 0).unwrap(), Utc);
+                        self.project.invoke_command(Command { timestamp, details: CommandDetails::SetWorklog {
                             task_id: *task_id,
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: 10,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
                     ui.same_line();
                     if ui.button("25%") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
+                        let timestamp = DateTime::from_naive_utc_and_offset((*day).and_hms_opt(0, 0, 0).unwrap(), Utc);
+                        self.project.invoke_command(Command { timestamp, details: CommandDetails::SetWorklog {
                             task_id: *task_id,
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: 25,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
                     ui.same_line();
                     if ui.button("50%") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
+                        let timestamp = DateTime::from_naive_utc_and_offset((*day).and_hms_opt(0, 0, 0).unwrap(), Utc);
+                        self.project.invoke_command(Command { timestamp, details: CommandDetails::SetWorklog {
                             task_id: *task_id,
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: 50,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
                     ui.same_line();
                     if ui.button("75%") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
+                        let timestamp = DateTime::from_naive_utc_and_offset((*day).and_hms_opt(0, 0, 0).unwrap(), Utc);
+                        self.project.invoke_command(Command { timestamp, details: CommandDetails::SetWorklog {
                             task_id: *task_id,
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: 75,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }                    
                     ui.same_line();
                     if ui.button("100%") {
                         ui.close_current_popup();
-                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
+                        let timestamp = DateTime::from_naive_utc_and_offset((*day).and_hms_opt(0, 0, 0).unwrap(), Utc);
+                        self.project.invoke_command(Command { timestamp, details: CommandDetails::SetWorklog {
                             task_id: *task_id,
                             date: *day,
                             resource_name: resource.name.clone(),
                             fraction: 100,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2163,12 +2172,13 @@ impl Gui {
                                 .and_then(|resource_worklogs| resource_worklogs.get(day))
                                 .map(|w| w.fraction)
                                 .unwrap_or(0);
-                            self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::SetWorklog {
+                            let timestamp = DateTime::from_naive_utc_and_offset((*day).and_hms_opt(0, 0, 0).unwrap(), Utc);
+                            self.project.invoke_command(Command { timestamp, details: CommandDetails::SetWorklog {
                                 task_id: *task_id,
                                 date: *day,
                                 resource_name: resource.name.clone(),
                                 fraction: current_worklog_fraction + remaining_fraction as u8,
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 eprintln!("Failed to update task: {e}");
                             });
                         }
@@ -2192,7 +2202,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2223,13 +2233,12 @@ impl Gui {
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
                             duration: new_duration_days,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
                     if ui.button("Crop") {
                         if let Some(task_alloc_for_day) = self.project.flow_state().cache().task_alloc_rendering.get(task_id)
-                                .and_then(|r| r.get(resource_id))
                                 .and_then(|r| r.get(day)).cloned() {
                             let duration = TaskDuration {
                                 days: task.duration.days,
@@ -2243,14 +2252,13 @@ impl Gui {
                                 ticket: task.ticket.clone(),
                                 title: task.title.clone(),
                                 duration,
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 eprintln!("Failed to crop task: {e}");
                             });
                         }
                     }
                     if ui.button("Round up") {
                         if let Some(task_alloc_for_day) = self.project.flow_state().cache().task_alloc_rendering.get(task_id)
-                                .and_then(|r| r.get(resource_id))
                                 .and_then(|r| r.get(day)).cloned() {
                             let duration = task.duration + (TaskDuration {
                                 days: 0,
@@ -2261,7 +2269,7 @@ impl Gui {
                                 ticket: task.ticket.clone(),
                                 title: task.title.clone(),
                                 duration,
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 eprintln!("Failed to crop task: {e}");
                             });
                         }
@@ -2337,7 +2345,7 @@ impl Gui {
                         }
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::CompoundCommand {
                             commands,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to create task: {e}");
                         });
                         self.task_title_input_text_buffer.clear();
@@ -2357,7 +2365,7 @@ impl Gui {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
                             task_id: *task_id,
                             resource_name: resource.name,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             gui_log!(self, "Failed to assign task to resource: {e}");
                         });
                     }
@@ -2374,14 +2382,14 @@ impl Gui {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to unwatch task: {e}");
                             });
                         } else {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddWatcher {
                                 task_id: *task_id,
                                 resource_name: resource.name.clone(),
-                            }}, self.date_offset).unwrap_or_else(|e| {
+                            }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                 gui_log!(self, "Failed to watch task: {e}");
                             });
                         }
@@ -2392,7 +2400,7 @@ impl Gui {
             if ui.menu_item("Delete") {
                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::DeleteTask {
                     id: *task_id,
-                }}, self.date_offset).unwrap_or_else(|e| {
+                }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                     gui_log!(self, "Failed to delete task: {e}");
                 });
             }
@@ -2446,7 +2454,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                         self.task_title_input_text_buffer.clear();
@@ -2467,7 +2475,7 @@ impl Gui {
                                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AddLabelToTask {
                                     task_id: *task_id,
                                     label_name: label.name.clone(),
-                                }}, self.date_offset).unwrap_or_else(|e| {
+                                }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                     gui_log!(self, "Failed to add label to task: {e}");
                                 });
                             }
@@ -2492,7 +2500,7 @@ impl Gui {
                                             label_name: self.label_input_text_buffer.clone(),
                                         }}
                                     ]
-                                }}, self.date_offset).unwrap_or_else(|e| {
+                                }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                     gui_log!(self, "Failed to create label and add to task: {e}");
                                 });
                                 self.label_input_text_buffer.clear();
@@ -2508,7 +2516,7 @@ impl Gui {
                                 self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::RemoveLabelFromTask {
                                     task_id: *task_id,
                                     label_name: label.name.clone(),
-                                }}, self.date_offset).unwrap_or_else(|e| {
+                                }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                                     gui_log!(self, "Failed to remove label from task: {e}");
                                 });
                             }
@@ -2534,7 +2542,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2562,7 +2570,7 @@ impl Gui {
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
                             duration: new_duration_days,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2590,7 +2598,7 @@ impl Gui {
                                 days: self.task_duration_days as u64,
                                 fraction: (self.task_duration_days.fract() * 100.0) as u8,
                             },
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2621,7 +2629,7 @@ impl Gui {
                             ticket: task.ticket.clone(),
                             title: task.title.clone(),
                             duration: new_duration_days,
-                        }}, self.date_offset).unwrap_or_else(|e| {
+                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
                             eprintln!("Failed to update task: {e}");
                         });
                     }
@@ -2765,24 +2773,24 @@ impl Gui {
         Utc::now() + chrono::Duration::days(self.date_offset as i64)
     }
 
-    fn draw_inspection_tab(&mut self, ui: &Ui, inspector: &TaskInspector) {
-        let task = self.project.flow_state().tasks.get(&inspector.task_id).unwrap();
+    fn draw_inspection_tab(&mut self, ui: &Ui, inspection: &TaskInspection) {
+        let task = inspection.flow_state.tasks.get(&inspection.task_id).unwrap();
         let task_label = format!("{} - {}", 
             task.ticket,
             task.title.chars().take(20).collect::<String>()
         );
         if let Some(_res_tab_item) = ui.tab_item(task_label) {
-            let _id = ui.push_id_usize(inspector.task_id as usize);
-            if self.draw_inspection_table(ui, "##inspection_gantt_chart") {
-                self.draw_inspection_calendar_row(ui);
-                self.draw_gantt_chart_milestones_row(ui);
-                // self.draw_gantt_chart_resources_contents(ui);
+            let _id = ui.push_id_usize(inspection.task_id as usize);
+            if self.draw_inspection_table(ui, inspection, "##inspection_gantt_chart") {
+                self.draw_inspection_calendar_row(ui, inspection);
+                self.draw_inspection_milestones_row(ui, inspection);
+                self.draw_inspection_content(ui, inspection);
                 unsafe {imgui::sys::igEndTable();}
             }
         }
     }
 
-    fn draw_inspection_table(&mut self, ui: &Ui, id: &str) -> bool {
+    fn draw_inspection_table(&mut self, ui: &Ui, inspection: &TaskInspection, id: &str) -> bool {
         let table_id = std::ffi::CString::new(id).unwrap();
         let flags = imgui::sys::ImGuiTableFlags_Borders
             | imgui::sys::ImGuiTableFlags_HighlightHoveredColumn
@@ -2792,7 +2800,7 @@ impl Gui {
             | imgui::sys::ImGuiTableFlags_Resizable
             | imgui::sys::ImGuiTableFlags_NoPadOuterX
             | imgui::sys::ImGuiTableFlags_NoPadInnerX;
-        let num_columns = self.project.flow_state().cache().num_days() + 2;
+        let num_columns = inspection.flow_state.cache().num_days() + 1;
         unsafe {imgui::sys::igBeginTable(
             table_id.as_ptr(),
             num_columns as i32,
@@ -2802,15 +2810,12 @@ impl Gui {
         )}
     }
 
-    fn draw_inspection_calendar_row(&mut self, ui: &Ui) {
-        let mut table_1st_column_data = TableColumnSetup::new("Calendar");
-        table_1st_column_data.flags = TableColumnFlags::NO_HIDE | TableColumnFlags::NO_REORDER;
-        ui.table_setup_column_with(table_1st_column_data);
-        let mut table_2nd_column_data = TableColumnSetup::new("Assignee");
-        table_2nd_column_data.flags = TableColumnFlags::NO_HIDE | TableColumnFlags::NO_REORDER;
-        ui.table_setup_column_with(table_2nd_column_data);
-        for i in 0..self.project.flow_state().cache().num_days() {
-            let day: chrono::NaiveDate = self.project.flow_state().cache().day(i);
+    fn draw_inspection_calendar_row(&mut self, ui: &Ui, inspection: &TaskInspection) {
+        let mut table_column_data = TableColumnSetup::new("Calendar");
+        table_column_data.flags = TableColumnFlags::NO_HIDE | TableColumnFlags::NO_REORDER;
+        ui.table_setup_column_with(table_column_data);
+        for i in 0..inspection.flow_state.cache().num_days() {
+            let day: chrono::NaiveDate = inspection.flow_state.cache().day(i);
             let day_str = day.format("%m/%d").to_string();
             let day_cstr = std::ffi::CString::new(day_str).unwrap();
             unsafe {imgui::sys::igTableSetupColumn(
@@ -2822,16 +2827,236 @@ impl Gui {
                 0,
             );}
         }
-        unsafe {imgui::sys::igTableSetupScrollFreeze(2, 4);}
+        unsafe {imgui::sys::igTableSetupScrollFreeze(1, 4);}
         unsafe {imgui::sys::igTableAngledHeadersRow();}
         ui.table_headers_row();
-
+       
         let today = self.get_timestamp().date_naive();
-        for i in 0..self.project.flow_state().cache().num_days() {
-            let day: chrono::NaiveDate = self.project.flow_state().cache().day(i);
+        for i in 0..inspection.flow_state.cache().num_days() {
+            let day: chrono::NaiveDate = inspection.flow_state.cache().day(i);
             if day == today {
                 let pink = [1.0, 0.75, 0.8, 1.0];
-                ui.table_set_bg_color_with_column(TableBgTarget::CELL_BG, pink, i + 2);
+                ui.table_set_bg_color_with_column(TableBgTarget::CELL_BG, pink, i + 1);
+            }
+        }
+    }
+
+    fn draw_inspection_milestones_row(&mut self, ui: &Ui, inspection: &TaskInspection) {
+        ui.table_next_row();
+        ui.table_next_column();
+        ui.text("  Milestones");
+        for i in 1..=inspection.flow_state.cache().num_days() {
+            if ui.table_next_column() {
+                let _id = ui.push_id_usize(i);
+                let day = inspection.flow_state.cache().day(i - 1);
+                if let Some(milestones) = inspection.flow_state.cache().date_to_milestones.get(&day) {
+                    for milestone in milestones {
+                        let cursor_pos = ui.cursor_screen_pos();
+
+                        let text_size = ui.calc_text_size(&milestone.title);
+                        let column_width = ui.current_column_width();
+
+                        let text_pos = [
+                            cursor_pos[0] + (column_width - text_size[0]) * 0.5,
+                            cursor_pos[1],
+                        ];
+                        let text_color = ui.style_color(StyleColor::Text);
+                        self.drawing_aids.pending_draws.push((text_pos, text_color, milestone.title.clone()));
+                    }
+                }
+            }
+        }
+        ui.table_next_row();
+        for i in 1..=self.project.flow_state().cache().num_days() {
+            if ui.table_next_column() {
+                let bg_color = ui.style_color(StyleColor::TableHeaderBg);
+                ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
+            }
+        }
+    }
+
+    fn draw_inspection_content(&mut self, ui: &Ui, inspection: &TaskInspection) {
+        self.drawing_aids.previous_rect = None;
+        for i in 0..inspection.flow_state.cache().num_days() {
+            let day = inspection.flow_state.cache().day(i);
+            self.draw_inspection_content_for_day(ui, inspection, &day);
+        }
+    }
+
+    fn draw_inspection_content_for_day(&mut self, ui: &Ui, inspection: &TaskInspection, date: &NaiveDate) {
+        ui.table_next_row();
+        ui.table_next_column();
+        let _vday_token_id = ui.push_id(date.to_string());
+        let assignee = inspection.assignee_history.get(date).copied().flatten();
+        let assignee_name = assignee
+            .and_then(|id| self.project.flow_state().resources.get(&id))
+            .map(|r| r.name.clone())
+            .unwrap_or_else(|| "Unassigned".to_string());
+        let assignee_cstr = std::ffi::CString::new(assignee_name).unwrap();
+        let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_Bullet;
+        let expand_task = unsafe {
+            imgui::sys::igTreeNodeEx_Str(assignee_cstr.as_ptr(), flags as i32)
+        };
+
+        let worklogs = inspection.worklogs_history.get(date);
+        let allocs = inspection.allocations_history.get(date);
+        let absences = inspection.absences_history.get(date);
+
+        for i in 1..=inspection.flow_state.cache().num_days() {
+            if ui.table_next_column() {
+                let _hday_token_id = ui.push_id_usize(i);
+                let day = inspection.flow_state.cache().day(i - 1);
+                self.draw_cell_background(ui, &day);
+                if !self.gui_config.hide_worklogs {   
+                    if let Some(worklog) = worklogs.and_then(|wl_map| wl_map.get(&day)).copied() {
+                        self.draw_inspection_worklog(ui, worklog);
+                    }
+                    if let Some(absence) = absences.and_then(|abs_map| abs_map.get(&day)).copied() {
+                        self.draw_inspection_absence(ui, absence);
+                    }
+                    if let Some(alloc) = allocs.and_then(|alloc_map| alloc_map.get(&day)).copied() {
+                        let worklog = worklogs.and_then(|wl_map| wl_map.get(&day)).copied();
+                        self.draw_inspection_alloc(ui, worklog, Some(alloc));
+                    }
+                }
+            }
+        }
+        if expand_task {
+            unsafe {imgui::sys::igTreePop();}
+        }
+    }
+
+    fn draw_inspection_worklog(&mut self, ui: &Ui, worklog: u8) {
+        let cell_height = unsafe { igGetTextLineHeight() };
+        let cell_padding = unsafe { ui.style().cell_padding };
+        let effective_cell_height = cell_height + 1.5 * cell_padding[1];
+        let effective_cell_width = ui.current_column_width();
+
+        let cursor_pos = unsafe {
+            let mut pos = ImVec2 { x: 0.0, y: 0.0 };
+            igGetCursorScreenPos(&mut pos);
+            pos.y -= cell_padding[1] / 2.0;
+            pos
+        };
+        let worklog_height = effective_cell_height * (worklog as f32) / 100.0;
+        let worklog_p1 = [
+            cursor_pos.x,
+            cursor_pos.y + effective_cell_height - worklog_height,
+        ];
+        let worklog_p2 = [
+            cursor_pos.x + effective_cell_width,
+            cursor_pos.y + effective_cell_height,
+        ];
+        ui.get_window_draw_list().add_rect(worklog_p1, worklog_p2, [0.32, 0.58, 0.83, 1.0])
+            .filled(true)
+            .build();
+    }
+
+    fn draw_inspection_absence(&mut self, ui: &Ui, absence: u8) {
+        let cell_height = unsafe { igGetTextLineHeight() };
+        let cell_padding = unsafe { ui.style().cell_padding };
+        let effective_cell_height = cell_height + 1.5 * cell_padding[1];
+        let effective_cell_width = ui.current_column_width();
+
+        let cursor_pos = unsafe {
+            let mut pos = ImVec2 { x: 0.0, y: 0.0 };
+            igGetCursorScreenPos(&mut pos);
+            pos.y -= cell_padding[1] / 2.0;
+            pos
+        };
+
+        let absence_height = (effective_cell_height * (absence as f32 / 100.0)).max(1.0);
+        let draw_list = ui.get_window_draw_list();
+        let top_left = [cursor_pos.x, cursor_pos.y];
+        let bottom_right = [cursor_pos.x + effective_cell_width, cursor_pos.y + absence_height];
+        let absence_color = [0.0, 0.0, 0.0, 1.0];
+        let border_color = [0.0, 0.0, 0.0, 1.0];
+
+        draw_list.add_rect(top_left, bottom_right, absence_color)
+            .filled(true)
+            .build();
+
+        draw_list.add_rect(top_left, bottom_right, border_color)
+            .thickness(1.0)
+            .build();
+    }
+
+    fn draw_inspection_alloc(&mut self, ui: &Ui, worklog: Option<u8>, alloc: Option<u8>) {
+        let cell_height = unsafe { igGetTextLineHeight() };
+        let cell_padding = unsafe { ui.style().cell_padding };
+        let effective_cell_height = cell_height + (cell_padding[1]);
+        let effective_cell_width = ui.current_column_width();
+
+        if let Some(alloc) = alloc {
+            let cursor_pos = unsafe {
+                let mut pos = ImVec2 { x: 0.0, y: 0.0 };
+                igGetCursorScreenPos(&mut pos);
+                pos.y -= cell_padding[1] / 2.0;
+                pos
+            };
+
+            let alloc_height = effective_cell_height * (alloc as f32 / 100.0);
+            let worklog_height = if let Some(worklog) = worklog {
+                effective_cell_height * (worklog as f32) / 100.0
+            } else {
+                0.0
+            };
+
+            let draw_list = ui.get_window_draw_list();
+            let top_left = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height - alloc_height];
+            let bottom_right = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height - worklog_height];
+            let alloc_color = [1.0, 1.0, 1.0, 1.0];
+            let border_color = [0.0, 0.0, 0.0, 1.0];
+
+            draw_list.add_rect(top_left, bottom_right, alloc_color)
+                .filled(true)
+                .build();
+
+            if let Some(prev_rect) = self.drawing_aids.previous_rect {
+                let left_top = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height - alloc_height];
+                let left_bottom = [cursor_pos.x, prev_rect.0.y];
+                draw_list.add_line(left_top, left_bottom, border_color)
+                    .thickness(1.0)
+                    .build();
+            } else {
+                let left_top = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height - alloc_height];
+                let left_bottom = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height];
+                draw_list.add_line(left_top, left_bottom, border_color)
+                    .thickness(1.0)
+                    .build();
+            }
+            
+            let top_left_border = [cursor_pos.x, cursor_pos.y + effective_cell_height - worklog_height - alloc_height];
+            let top_right_border = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height  - worklog_height - alloc_height];
+            let bottom_left_border = [cursor_pos.x, cursor_pos.y + effective_cell_height  - worklog_height];
+            let bottom_right_border = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height  - worklog_height];
+
+            draw_list.add_line(top_left_border, top_right_border, border_color)
+                .thickness(1.0)
+                .build();
+            draw_list.add_line(bottom_left_border, bottom_right_border, border_color)
+                .thickness(1.0)
+                .build();
+            self.drawing_aids.previous_rect = Some((
+                ImVec2 { x: top_left[0], y: top_left[1] },
+                ImVec2 { x: bottom_right[0], y: bottom_right[1] }
+            ));
+        } else {
+            if let Some(prev_rect) = self.drawing_aids.previous_rect {
+                let cursor_pos = unsafe {
+                    let mut pos = ImVec2 { x: 0.0, y: 0.0 };
+                    igGetCursorScreenPos(&mut pos);
+                    pos
+                };
+                let border_color = [0.0, 0.0, 0.0, 1.0];
+
+                let right_top = [cursor_pos.x, prev_rect.0.y];
+                let right_bottom = [cursor_pos.x, cursor_pos.y + effective_cell_height];
+
+                ui.get_window_draw_list().add_line(right_top, right_bottom, border_color)
+                    .thickness(1.0)
+                    .build();
+                self.drawing_aids.previous_rect = None;
             }
         }
     }
