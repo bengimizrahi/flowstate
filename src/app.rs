@@ -427,9 +427,9 @@ impl Project {
         Ok(())
     }
 
-    pub fn invoke_command(&mut self, command: Command, date_offset: i32) -> Result<(), String> {
+    pub fn invoke_command(&mut self, command: Command, date: NaiveDate) -> Result<(), String> {
         println!("Invoking command: {:?}", command);
-        let undo_command = self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command.clone(), date_offset)?;
+        let undo_command = self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command.clone(), date)?;
         self.append_to_command_history(CommandRecord {
             undo_command,
             redo_command: command,
@@ -438,25 +438,26 @@ impl Project {
         Ok(())
     }
 
-    pub fn undo(&mut self, date_offset: i32) -> Result<(), String> {
+    pub fn undo(&mut self, date: NaiveDate) -> Result<(), String> {
         if self.num_commands_applied == 0 {
             return Err("No commands to undo".to_string());
         }
         let command_record = &self.command_stack[self.num_commands_applied - 1];
         println!("Command for undo: {:?}", command_record.undo_command);
-        self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command_record.undo_command.clone(), date_offset)?;
+        let date: NaiveDate = NaiveDate::from_ymd_opt(1970,1,1).unwrap();
+        self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command_record.undo_command.clone(), date)?;
         self.num_commands_applied -= 1;
         self.save_to_yaml()?;
         Ok(())
     }
 
-    pub fn redo(&mut self, date_offset: i32) -> Result<(), String> {
+    pub fn redo(&mut self, date: NaiveDate) -> Result<(), String> {
         if self.num_commands_applied >= self.command_stack.len() {
             return Err("No commands to redo".to_string());
         }
         let command_record = &self.command_stack[self.num_commands_applied];
         println!("Command for redo: {:?}", command_record.redo_command);
-        self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command_record.redo_command.clone(), date_offset)?;
+        let date: NaiveDate = NaiveDate::from_ymd_opt(1970,1,1).unwrap();
         self.num_commands_applied += 1;
         self.save_to_yaml()?;
         Ok(())
@@ -516,7 +517,8 @@ impl FlowState {
             next_label_id: 1,
             next_filter_id: 1,
         };
-        flow_state.rebuild_cache(0);
+        let date: NaiveDate = NaiveDate::from_ymd_opt(1970,1,1).unwrap();
+        flow_state.rebuild_cache(date);
         flow_state
     }
 
@@ -525,7 +527,7 @@ impl FlowState {
         for command in commands {
             flow_state.execute_command_and_generate_inverse(command.clone())?;
         }
-        flow_state.rebuild_cache(0);
+        flow_state.rebuild_cache(NaiveDate::from_ymd_opt(1970,1,1).unwrap());
         flow_state.reset_ids();
         Ok(flow_state)
     }
@@ -1164,14 +1166,14 @@ impl FlowState {
         }
     }
 
-    fn execute_command_generate_inverse_and_rebuild_cache(&mut self, command: Command, date_offset: i32) -> Result<Command, String> {
+    fn execute_command_generate_inverse_and_rebuild_cache(&mut self, command: Command, date: NaiveDate) -> Result<Command, String> {
         let undo_command = self.execute_command_and_generate_inverse(command)?;
-        self.rebuild_cache(date_offset);
+        self.rebuild_cache(date);
         Ok(undo_command)
     }
 
-    pub fn rebuild_cache(&mut self, date_offset: i32) {
-        self.flow_state_cache = FlowStateCache::from(self, date_offset);
+    pub fn rebuild_cache(&mut self, date: NaiveDate) {
+        self.flow_state_cache = FlowStateCache::from(self, date);
     }
 
     fn reset_ids(&mut self) {
@@ -1243,9 +1245,9 @@ pub struct AllocCursor {
 }
 
 impl AllocCursor {
-    fn new(date_offset: i32) -> Self {
+    fn new(date: NaiveDate) -> Self {
         let mut cursor = AllocCursor {
-            date: Utc::now().date_naive() + Duration::days(date_offset as i64),
+            date,
             alloced_amount: TaskDuration { days: 0, fraction: 0 },
         };
         cursor.if_weekend_advance_to_monday();
@@ -1290,8 +1292,7 @@ pub struct FlowStateCache {
     end_date: NaiveDate,
     pub date_to_milestones: BTreeMap<NaiveDate, Vec<Milestone>>,
     pub unassigned_tasks: Vec<TaskId>,
-    pub unassigned_task_alloc_rendering: HashMap<TaskId, HashMap<NaiveDate, Fraction>>,
-    pub task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>>,
+    pub task_alloc_rendering: HashMap<TaskId, HashMap<NaiveDate, Fraction>>,
     pub resource_absence_rendering: HashMap<ResourceId, HashMap<NaiveDate, Fraction>>,
     pub worklogs_on_others_tasks: HashMap<ResourceId, HashMap<NaiveDate, Fraction>>,
 }
@@ -1303,14 +1304,13 @@ impl FlowStateCache {
             end_date: Utc::now().date_naive(),
             date_to_milestones: BTreeMap::new(),
             unassigned_tasks: Vec::new(),
-            unassigned_task_alloc_rendering: HashMap::new(),
             task_alloc_rendering: HashMap::new(),
             resource_absence_rendering: HashMap::new(),
             worklogs_on_others_tasks: HashMap::new(),
         }
     }
 
-    fn from(flow_state: &FlowState, date_offset: i32) -> Self {
+    fn from(flow_state: &FlowState, date: NaiveDate) -> Self {
         let resource_absence_rendering: HashMap<ResourceId, HashMap<NaiveDate, Fraction>> = flow_state.resources.iter()
             .map(|(resource_id, resource)| {
                 let absence_map = {
@@ -1368,10 +1368,10 @@ impl FlowStateCache {
             })
             .collect();
 
-        let mut most_farther_alloc_date = chrono::Utc::now().date_naive() + chrono::Duration::days(date_offset as i64);
-        let mut task_alloc_rendering: HashMap<TaskId, HashMap<ResourceId, HashMap<NaiveDate, Fraction>>> = HashMap::new();
+        let mut most_farther_alloc_date = date;
+        let mut task_alloc_rendering: HashMap<TaskId, HashMap<NaiveDate, Fraction>> = HashMap::new();
         for (resource_id, resource) in &flow_state.resources {
-            let mut cursor = AllocCursor::new(date_offset);
+            let mut cursor = AllocCursor::new(date);
             for task_id in &resource.assigned_tasks {
                 if let Some(_task) = flow_state.tasks.get(task_id) {
                     let mut remaining_alloc = remaining_durations.get(task_id)
@@ -1394,7 +1394,6 @@ impl FlowStateCache {
                         let work_to_allocate = remaining_alloc.min(remaining_alloc_for_current_day);
                         if work_to_allocate > (TaskDuration { days: 0, fraction: 0 }) {
                             task_alloc_rendering.entry(*task_id).or_default()
-                                .entry(*resource_id).or_default()
                                 .insert(cursor.date, work_to_allocate.into());
                         }
                         remaining_alloc -= work_to_allocate;
@@ -1409,7 +1408,7 @@ impl FlowStateCache {
             }
         }
         let mut unassigned_task_alloc_rendering: HashMap<TaskId, HashMap<NaiveDate, Fraction>> = HashMap::new();
-        let today = chrono::Utc::now().date_naive() + chrono::Duration::days(date_offset as i64);
+        let today = date;
         for task_id in &unassigned_tasks {
             let mut remaining_alloc = remaining_durations.get(task_id)
                 .cloned()
@@ -1482,7 +1481,6 @@ impl FlowStateCache {
             end_date,
             date_to_milestones,
             unassigned_tasks,
-            unassigned_task_alloc_rendering,
             task_alloc_rendering,
             resource_absence_rendering,
             worklogs_on_others_tasks,
@@ -1508,7 +1506,7 @@ mod tests {
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
-        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } }, 0);
+        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } }, timestamp.date_naive());
 
         assert!(result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == "Development"));
@@ -1520,11 +1518,11 @@ mod tests {
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
-        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } }, 0);
+        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } }, timestamp.date_naive());
         assert!(result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == "Development"));
 
-        let undo_result = app.undo(0);
+        let undo_result = app.undo(timestamp.date_naive());
         assert!(undo_result.is_ok());
         assert!(!app.flow_state.teams.values().any(|team| team.name == "Development"));
     }
@@ -1535,15 +1533,15 @@ mod tests {
         let timestamp = Utc::now();
         let team_name = "Development".to_string();
 
-        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } }, 0);
+        let result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name } }, timestamp.date_naive());
         assert!(result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == "Development"));
 
-        let undo_result = app.undo(0);
+        let undo_result = app.undo(timestamp.date_naive());
         assert!(undo_result.is_ok());
         assert!(!app.flow_state.teams.values().any(|team| team.name == "Development"));
 
-        let redo_result = app.redo(0);
+        let redo_result = app.redo(timestamp.date_naive());
         assert!(redo_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == "Development"));
     }
@@ -1555,15 +1553,15 @@ mod tests {
         let team_name = "Development".to_string();
         let new_team_name = "Engineering".to_string();
 
-        let create_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } }, 0);
+        let create_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } }, timestamp.date_naive());
         assert!(create_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == team_name));
 
-        let rename_result = app.invoke_command(Command { timestamp, details: CommandDetails::RenameTeam { old_name: team_name.clone(), new_name: new_team_name.clone() } }, 0);
+        let rename_result = app.invoke_command(Command { timestamp, details: CommandDetails::RenameTeam { old_name: team_name.clone(), new_name: new_team_name.clone() } }, timestamp.date_naive());
         assert!(rename_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == new_team_name));
 
-        let delete_result = app.invoke_command(Command { timestamp, details: CommandDetails::DeleteTeam { name: new_team_name.clone() } }, 0);
+        let delete_result = app.invoke_command(Command { timestamp, details: CommandDetails::DeleteTeam { name: new_team_name.clone() } }, timestamp.date_naive());
         assert!(delete_result.is_ok());
         assert!(!app.flow_state.teams.values().any(|team| team.name == new_team_name));
     }
@@ -1576,26 +1574,26 @@ mod tests {
         let resource_name = "Alice".to_string();
         let new_team_name = "Engineering".to_string();
 
-        let create_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } }, 0);
+        let create_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } }, timestamp.date_naive());
         assert!(create_team_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == team_name));
 
-        let create_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateResource { name: resource_name.clone(), team_name: team_name.clone() } }, 0);
+        let create_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateResource { name: resource_name.clone(), team_name: team_name.clone() } }, timestamp.date_naive());
         assert!(create_resource_result.is_ok());
         assert!(app.flow_state.resources.values().any(|res| res.name == resource_name));
 
-        let rename_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::RenameTeam { old_name: team_name.clone(), new_name: new_team_name.clone() } }, 0);
+        let rename_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::RenameTeam { old_name: team_name.clone(), new_name: new_team_name.clone() } }, timestamp.date_naive());
         assert!(rename_team_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == new_team_name));
 
-        let switch_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::SwitchTeam { resource_name: resource_name.clone(), new_team_name: new_team_name.clone() } }, 0);
+        let switch_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::SwitchTeam { resource_name: resource_name.clone(), new_team_name: new_team_name.clone() } }, timestamp.date_naive());
         assert!(switch_team_result.is_ok());
         
         if let Some(resource) = app.flow_state.resources.get(&1) {
             assert_eq!(resource.team_id, 1); // Assuming the new team's ID is 1
         }
 
-        let delete_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::DeleteResource { name: resource_name.clone() } }, 0);
+        let delete_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::DeleteResource { name: resource_name.clone() } }, timestamp.date_naive());
         assert!(delete_resource_result.is_ok());
         assert!(!app.flow_state.resources.values().any(|res| res.name == resource_name));
     }
@@ -1616,15 +1614,15 @@ mod tests {
                 ticket,
                 title: title.clone(),
                 duration,
-            }}, 0);
+            }}, timestamp.date_naive());
         assert!(create_task_result.is_ok());
         assert!(app.flow_state.tasks.values().any(|task| task.title == title));
 
-        let undo_result = app.undo(0);
+        let undo_result = app.undo(timestamp.date_naive());
         assert!(undo_result.is_ok());
         assert!(!app.flow_state.tasks.values().any(|task| task.title == title));
 
-        let redo_result = app.redo(0);
+        let redo_result = app.redo(timestamp.date_naive());
         assert!(redo_result.is_ok());
         assert!(app.flow_state.tasks.values().any(|task| task.title == title));
     }
@@ -1637,12 +1635,12 @@ mod tests {
         let resource_name = "Alice".to_string();
 
         // Create a team
-        let create_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } }, 0);
+        let create_team_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateTeam { name: team_name.clone() } }, timestamp.date_naive());
         assert!(create_team_result.is_ok());
         assert!(app.flow_state.teams.values().any(|team| team.name == team_name));
 
         // Create a resource in the team
-        let create_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateResource { name: resource_name.clone(), team_name: team_name.clone() } }, 0);
+        let create_resource_result = app.invoke_command(Command { timestamp, details: CommandDetails::CreateResource { name: resource_name.clone(), team_name: team_name.clone() } }, timestamp.date_naive());
         assert!(create_resource_result.is_ok());
         assert!(app.flow_state.resources.values().any(|res| res.name == resource_name));
 
@@ -1675,62 +1673,81 @@ mod tests {
 
     #[test]
     fn test_alloc_cursor_add_assign_task_duration() {
-        let mut cursor = AllocCursor::new(0);
+        let mut cursor = AllocCursor::new(NaiveDate::from_ymd_opt(2025, 8, 22).unwrap());
         cursor += TaskDuration { days: 0, fraction: 50 };
         assert_eq!(cursor.alloced_amount, TaskDuration { days: 0, fraction: 50 });
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct TaskInspector {
+pub struct TaskInspection {
     pub task_id: TaskId,
-    pub allocations: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
-    pub absences: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
-    pub worklogs: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
-    pub assignee: HashMap<NaiveDate, Option<ResourceId>>,
+    pub allocations_history: BTreeMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
+    pub absences_history: BTreeMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
+    pub worklogs_history: BTreeMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
+    pub assignee_history: BTreeMap<NaiveDate, Option<ResourceId>>,
+    pub flow_state: FlowState,
 }
 
-impl TaskInspector {
-    pub fn new(inspected_task_id: TaskId, commands: Vec<Command>, date_offset: i32) -> Self {
-        let mut allocations: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>> = HashMap::new();
-        let mut absences: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>> = HashMap::new();
-        let mut worklogs: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>> = HashMap::new();
-        let mut assignee: HashMap<NaiveDate, Option<ResourceId>> = HashMap::new();
-        let mut flow_state = FlowState::new();
-        for cmd in &commands {
-            flow_state.execute_command_generate_inverse_and_rebuild_cache(cmd.clone(), date_offset).unwrap();
+impl TaskInspection {
+    pub fn new(inspected_task_id: TaskId) -> Self {
+        TaskInspection {
+            task_id: inspected_task_id,
+            allocations_history: BTreeMap::new(),
+            absences_history: BTreeMap::new(),
+            worklogs_history: BTreeMap::new(),
+            assignee_history: BTreeMap::new(),
+            flow_state: FlowState::new(),
+        }
+    }
+
+    pub fn from(inspected_task_id: TaskId, commands: Vec<Command>, date: NaiveDate) -> Self {
+        let mut task_inspector = TaskInspection::new(inspected_task_id);
+
+        let (start_date, end_date) = {
+            let flow_state = FlowState::from_commands(&commands).unwrap();
+            let s = flow_state.cache().day(0);
+            let e = flow_state.cache().day(flow_state.cache().num_days() - 1);
+            (s, e)
+        };
+
+        let mut commands_by_date = HashMap::new();
+        for cmd in commands {
             let date = cmd.timestamp.date_naive();
-            if let Some(inspected_task) = flow_state.tasks.get(&inspected_task_id) {
-                if let Some(inspected_task_assignee) = inspected_task.assignee {
-                    assignee.insert(date, Some(inspected_task_assignee));
-                    flow_state.worklogs.get(&inspected_task_id).map(|res_logs| {
-                        res_logs.get(&inspected_task_assignee).map(|logs| {
-                            worklogs.insert(
-                                date,
-                                logs.iter().map(|(d, w)| (*d, w.fraction)).collect::<HashMap<NaiveDate, Fraction>>()
-                            );
-                        });
-                    });
-                    flow_state.cache()
-                            .resource_absence_rendering.get(&inspected_task_assignee)
-                            .map(|abs| {
-                        absences.insert(date, abs.clone());
-                    });
-                    flow_state.cache().task_alloc_rendering.get(&inspected_task_assignee).map(|res_allocs| {
-                        res_allocs.get(&inspected_task_assignee).map(|alloc| {
-                            allocations.insert(date, alloc.clone());
-                        });
-                    });
-                } else {
-                    assignee.insert(date, None);
-                    worklogs.insert(date, HashMap::new());
-                    absences.insert(date, HashMap::new());
-                    flow_state.cache().unassigned_task_alloc_rendering.get(&inspected_task_id).map(|alloc| {
-                        allocations.insert(date, alloc.clone());
-                    });
+            commands_by_date.entry(date).or_insert_with(Vec::new).push(cmd);
+        }
+        dbg!(&commands_by_date);
+        let mut flow_state = FlowState::new();
+        let mut date_it = start_date;
+        while date_it <= end_date {
+            if let Some(cmds) = commands_by_date.get(&date_it) {
+                for cmd in cmds {
+                    dbg!(&cmd);
+                    flow_state.execute_command_generate_inverse_and_rebuild_cache(cmd.clone(), date_it).unwrap();
                 }
             }
+            let assignee = flow_state.tasks.get(&inspected_task_id)
+                .and_then(|task| task.assignee);
+            task_inspector.assignee_history.insert(date_it, assignee);
+            task_inspector.allocations_history.insert(date_it, 
+                    flow_state.cache().task_alloc_rendering
+                        .get(&inspected_task_id).cloned().unwrap_or_default());
+            task_inspector.absences_history.insert(date_it, 
+                    flow_state.cache().resource_absence_rendering
+                        .get(&inspected_task_id).cloned().unwrap_or_default());
+            task_inspector.worklogs_history.insert(date_it, 
+                    flow_state.worklogs.get(&inspected_task_id)
+                        .and_then(|resource_map| resource_map.get(&assignee.unwrap_or(0)))
+                        .map(|date_map| {
+                            date_map.iter()
+                                .map(|(d, w)| (*d, w.fraction))
+                                .collect::<HashMap<NaiveDate, Fraction>>()
+                        }).unwrap_or_default());
+            date_it = date_it + Duration::days(1);
         }
-        TaskInspector { task_id: inspected_task_id, allocations, absences, worklogs, assignee }
+
+        task_inspector.flow_state = flow_state;
+        dbg!(&task_inspector);
+        task_inspector
     }
 }
