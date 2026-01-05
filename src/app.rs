@@ -1735,11 +1735,11 @@ impl TaskInspection {
             task_inspector.allocations_history.insert(date_it, 
                     flow_state.cache().task_alloc_rendering
                         .get(&inspected_task_id).cloned().unwrap_or_default());
-            dbg!(date_it, flow_state.cache().task_alloc_rendering
-                        .get(&inspected_task_id).cloned().unwrap_or_default());
-            task_inspector.absences_history.insert(date_it, 
-                    flow_state.cache().resource_absence_rendering
-                        .get(&inspected_task_id).cloned().unwrap_or_default());
+            if let Some(assignee) = assignee {
+                task_inspector.absences_history.insert(date_it, 
+                        flow_state.cache().resource_absence_rendering
+                            .get(&assignee).cloned().unwrap_or_default());
+            }
             task_inspector.worklogs_history.insert(date_it, 
                     flow_state.worklogs.get(&inspected_task_id)
                         .and_then(|resource_map| resource_map.get(&assignee.unwrap_or(0)))
