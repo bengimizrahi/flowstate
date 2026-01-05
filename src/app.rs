@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::{Add, Sub, SubAssign};
+use std::task;
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc, Duration, Datelike};
 use serde::{Deserialize, Serialize};
@@ -1682,22 +1683,24 @@ mod tests {
 #[derive(Debug, Clone)]
 pub struct TaskInspection {
     pub task_id: TaskId,
-    pub allocations_history: BTreeMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
-    pub absences_history: BTreeMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
-    pub worklogs_history: BTreeMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
-    pub assignee_history: BTreeMap<NaiveDate, Option<ResourceId>>,
+    pub allocations_history: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
+    pub absences_history: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
+    pub worklogs_history: HashMap<NaiveDate, HashMap<NaiveDate, Fraction>>,
+    pub assignee_history: HashMap<NaiveDate, Option<ResourceId>>,
     pub flow_state: FlowState,
+    pub start_date: NaiveDate,
 }
 
 impl TaskInspection {
     pub fn new(inspected_task_id: TaskId) -> Self {
         TaskInspection {
             task_id: inspected_task_id,
-            allocations_history: BTreeMap::new(),
-            absences_history: BTreeMap::new(),
-            worklogs_history: BTreeMap::new(),
-            assignee_history: BTreeMap::new(),
+            allocations_history: HashMap::new(),
+            absences_history: HashMap::new(),
+            worklogs_history: HashMap::new(),
+            assignee_history: HashMap::new(),
             flow_state: FlowState::new(),
+            start_date: NaiveDate::MAX,
         }
     }
 
@@ -1716,21 +1719,23 @@ impl TaskInspection {
             let date = cmd.timestamp.date_naive();
             commands_by_date.entry(date).or_insert_with(Vec::new).push(cmd);
         }
-        dbg!(&commands_by_date);
         let mut flow_state = FlowState::new();
         let mut date_it = start_date;
         while date_it <= end_date {
             if let Some(cmds) = commands_by_date.get(&date_it) {
                 for cmd in cmds {
-                    dbg!(&cmd);
-                    flow_state.execute_command_generate_inverse_and_rebuild_cache(cmd.clone(), date_it).unwrap();
+                    flow_state.execute_command_and_generate_inverse(cmd.clone()).unwrap();
                 }
             }
+            flow_state.rebuild_cache(date_it);
             let assignee = flow_state.tasks.get(&inspected_task_id)
                 .and_then(|task| task.assignee);
+            task_inspector.start_date = start_date.min(date_it);
             task_inspector.assignee_history.insert(date_it, assignee);
             task_inspector.allocations_history.insert(date_it, 
                     flow_state.cache().task_alloc_rendering
+                        .get(&inspected_task_id).cloned().unwrap_or_default());
+            dbg!(date_it, flow_state.cache().task_alloc_rendering
                         .get(&inspected_task_id).cloned().unwrap_or_default());
             task_inspector.absences_history.insert(date_it, 
                     flow_state.cache().resource_absence_rendering
@@ -1747,7 +1752,6 @@ impl TaskInspection {
         }
 
         task_inspector.flow_state = flow_state;
-        dbg!(&task_inspector);
         task_inspector
     }
 }

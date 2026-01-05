@@ -1609,7 +1609,7 @@ impl Gui {
             ui.separator();
             if let Some(_assign_to_menu) = ui.begin_menu("Assign to") {
                 let mut resources: Vec<_> = self.project.flow_state().resources.values().cloned().collect();
-                resources.sort_by(|a, b| a.name.cmp(&b.name));
+                resources.sort_by(|alloc, b| alloc.name.cmp(&b.name));
                 for resource in resources {
                     if ui.menu_item(resource.name.clone()) {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
@@ -1630,9 +1630,9 @@ impl Gui {
                 ui.close_current_popup();
             }
             if let Some(_watchers_menu) = ui.begin_menu("Watchers") {
-                /* list all the resources as a menu item. If the resource is already a watcher, it should be checked */
+                /* list all the resources as alloc menu item. If the resource is already alloc watcher, it should be checked */
                 let mut resources: Vec<_> = self.project.flow_state().resources.values().cloned().collect();
-                resources.sort_by(|a, b| a.name.cmp(&b.name));
+                resources.sort_by(|alloc, b| alloc.name.cmp(&b.name));
                 for resource in resources {
                     let is_watching = resource.watched_tasks.contains(task_id);
                     if ui.menu_item_config(resource.name.clone()).selected(is_watching).build() {
@@ -1836,7 +1836,7 @@ impl Gui {
         if let Some(_popup) = ui.begin_popup_context_item() {
             if let Some(_assign_to_menu) = ui.begin_menu("Assign to") {
                 let mut resources: Vec<_> = self.project.flow_state().resources.values().cloned().collect();
-                resources.sort_by(|a, b| a.name.cmp(&b.name));
+                resources.sort_by(|alloc, b| alloc.name.cmp(&b.name));
                 for resource in resources {
                     if ui.menu_item(resource.name.clone()) {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
@@ -1858,9 +1858,9 @@ impl Gui {
                 ui.close_current_popup();
             }
             if let Some(_watchers_menu) = ui.begin_menu("Watchers") {
-                /* list all the resources as a menu item. If the resource is already a watcher, it should be checked */
+                /* list all the resources as alloc menu item. If the resource is already alloc watcher, it should be checked */
                 let mut resources: Vec<_> = self.project.flow_state().resources.values().cloned().collect();
-                resources.sort_by(|a, b| a.name.cmp(&b.name));
+                resources.sort_by(|alloc, b| alloc.name.cmp(&b.name));
                 for resource in resources {
                     let is_watching = resource.watched_tasks.contains(task_id);
                     if ui.menu_item_config(resource.name.clone()).selected(is_watching).build() {
@@ -2359,7 +2359,7 @@ impl Gui {
         if let Some(_popup) = ui.begin_popup_context_item() {
             if let Some(_assign_to_menu) = ui.begin_menu("Assign to") {
                 let mut resources: Vec<_> = self.project.flow_state().resources.values().cloned().collect();
-                resources.sort_by(|a, b| a.name.cmp(&b.name));
+                resources.sort_by(|alloc, b| alloc.name.cmp(&b.name));
                 for resource in resources {
                     if ui.menu_item(resource.name.clone()) {
                         self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
@@ -2372,9 +2372,9 @@ impl Gui {
                 }
             }
             if let Some(_watchers_menu) = ui.begin_menu("Watchers") {
-                /* list all the resources as a menu item. If the resource is already a watcher, it should be checked */
+                /* list all the resources as alloc menu item. If the resource is already alloc watcher, it should be checked */
                 let mut resources: Vec<_> = self.project.flow_state().resources.values().cloned().collect();
-                resources.sort_by(|a, b| a.name.cmp(&b.name));
+                resources.sort_by(|alloc, b| alloc.name.cmp(&b.name));
                 for resource in resources {
                     let is_watching = resource.watched_tasks.contains(task_id);
                     if ui.menu_item_config(resource.name.clone()).selected(is_watching).build() {
@@ -2879,6 +2879,9 @@ impl Gui {
         self.drawing_aids.previous_rect = None;
         for i in 0..inspection.flow_state.cache().num_days() {
             let day = inspection.flow_state.cache().day(i);
+            if day < inspection.start_date {
+                continue;
+            }
             self.draw_inspection_content_for_day(ui, inspection, &day);
         }
     }
@@ -2914,10 +2917,9 @@ impl Gui {
                     if let Some(absence) = absences.and_then(|abs_map| abs_map.get(&day)).copied() {
                         self.draw_inspection_absence(ui, absence);
                     }
-                    if let Some(alloc) = allocs.and_then(|alloc_map| alloc_map.get(&day)).copied() {
-                        let worklog = worklogs.and_then(|wl_map| wl_map.get(&day)).copied();
-                        self.draw_inspection_alloc(ui, worklog, Some(alloc));
-                    }
+                    let alloc = allocs.and_then(|alloc_map| alloc_map.get(&day)).copied();
+                    let worklog = worklogs.and_then(|wl_map| wl_map.get(&day)).copied();
+                    self.draw_inspection_alloc(ui, worklog, alloc);
                 }
             }
         }
