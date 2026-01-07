@@ -74,7 +74,7 @@ impl Gui {
         let yaml_filename = gui_config.recent_project_files.first().cloned().unwrap_or_else(|| "database.yaml".to_string());
         Gui {
             gui_config,
-            project: Project::load_from_yaml(&yaml_filename).unwrap_or_else(|e| {
+            project: Project::load_from_yaml(&yaml_filename,  Utc::now().date_naive()).unwrap_or_else(|e| {
                 eprintln!("Failed to load project: {e}");
                 Project::new(&yaml_filename)
             }),
@@ -203,7 +203,7 @@ impl Gui {
                         .pick_file() 
                     {
                         let file_path_str = file_path.to_string_lossy().to_string();
-                        match Project::load_from_yaml(&file_path_str) {
+                        match Project::load_from_yaml(&file_path_str, self.get_timestamp().date_naive()) {
                             Ok(project) => {
                                 if !self.gui_config.recent_project_files.contains(&file_path_str) {
                                     self.gui_config.recent_project_files.push(file_path_str.clone());
@@ -222,7 +222,7 @@ impl Gui {
                     let recent_files = self.gui_config.recent_project_files.clone();
                     for recent_file in &recent_files {
                         if ui.menu_item(recent_file) {
-                            match Project::load_from_yaml(recent_file) {
+                            match Project::load_from_yaml(recent_file, self.get_timestamp().date_naive()) {
                                 Ok(project) => {
                                     self.project = project;
                                     gui_log!(self, "Opened project from {recent_file}");
@@ -1286,17 +1286,17 @@ impl Gui {
             let gradient_start = [cursor_pos.x + (0.9 * effective_cell_width), cursor_pos.y];
             let gradient_end = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height];
             
-            let transparent_red = [1.0, 0.0, 0.0, 0.0];
-            let opaque_red = [1.0, 0.0, 0.0, 0.7];
+            let transparent_pink = [1.0, 0.0, 0.0, 0.0];
+            let opaque_pink = [1.0, 0.0, 0.0, 0.7];
             
             // Draw gradient rectangle for milestone indicator
             draw_list.add_rect_filled_multicolor(
                 gradient_start,
                 gradient_end,
-                transparent_red,
-                opaque_red,
-                opaque_red,
-                transparent_red,
+                transparent_pink,
+                opaque_pink,
+                opaque_pink,
+                transparent_pink,
             );
         }
     }
@@ -2906,9 +2906,9 @@ impl Gui {
         let absences = inspection.absences_history.get(date);
 
         for i in 1..=inspection.flow_state.cache().num_days() {
+            let day = inspection.flow_state.cache().day(i - 1);
             if ui.table_next_column() {
                 let _hday_token_id = ui.push_id_usize(i);
-                let day = inspection.flow_state.cache().day(i - 1);
                 self.draw_cell_background(ui, &day);
                 if !self.gui_config.hide_worklogs {   
                     if let Some(worklog) = worklogs.and_then(|wl_map| wl_map.get(&day)).copied() {
@@ -2921,6 +2921,10 @@ impl Gui {
                     let worklog = worklogs.and_then(|wl_map| wl_map.get(&day)).copied();
                     self.draw_inspection_alloc(ui, worklog, alloc);
                 }
+            }
+            self.draw_milestone(ui, &day);
+            if date == &day {
+                self.draw_inspection_current_day(ui, &day);
             }
         }
         if expand_task {
@@ -3061,6 +3065,39 @@ impl Gui {
                 self.drawing_aids.previous_rect = None;
             }
         }
+    }
+
+    fn draw_inspection_current_day(&mut self, ui: &Ui, day: &NaiveDate) {
+        let cell_height = unsafe { igGetTextLineHeight() };
+        let cell_padding = unsafe { ui.style().cell_padding };
+        let effective_cell_height = cell_height + (2.0 * cell_padding[1]);
+        let effective_cell_width = ui.current_column_width();
+
+        let cursor_pos = unsafe {
+            let mut pos = ImVec2 { x: 0.0, y: 0.0 };
+            igGetCursorScreenPos(&mut pos);
+            pos.y -= cell_padding[1] / 2.0;
+            pos
+        };
+
+        let draw_list = ui.get_window_draw_list();
+        
+        // Create gradient from transparent red to opaque red on the right edge
+        let gradient_start = [cursor_pos.x + (0.1 * effective_cell_width), cursor_pos.y];
+        let gradient_end = [cursor_pos.x + effective_cell_width, cursor_pos.y + effective_cell_height];
+        
+        let transparent_red = [1.0, 0.75, 0.8, 0.0];
+        let opaque_red = [1.0, 0.75, 0.8, 1.0];
+        
+        // Draw gradient rectangle for milestone indicator
+        draw_list.add_rect_filled_multicolor(
+            gradient_start,
+            gradient_end,
+            opaque_red,
+            transparent_red,
+            transparent_red,
+            opaque_red,
+        );
     }
 }
 

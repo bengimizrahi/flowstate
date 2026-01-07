@@ -402,7 +402,7 @@ impl Project {
         }
     }
 
-    pub fn load_from_yaml(yaml_filename: &str) -> Result<Self, String> {
+    pub fn load_from_yaml(yaml_filename: &str, date: NaiveDate) -> Result<Self, String> {
         let mut file = File::open(yaml_filename).map_err(|e| format!("Failed to open YAML file: {}", e))?;
         let mut contents = String::new();
         file.read_to_string(&mut contents).map_err(|e| format!("Failed to read YAML file: {}", e))?;
@@ -411,7 +411,7 @@ impl Project {
             serde_yaml::from_str(&contents).map_err(|e| format!("Failed to deserialize YAML: {}", e))?;
 
         let flow_state = FlowState::from_commands(&command_stack.iter().take(num_commands_applied)
-            .map(|record| record.redo_command.clone()).collect::<Vec<_>>())
+            .map(|record| record.redo_command.clone()).collect::<Vec<_>>(), date)
             .expect("Failed to fast forward flow state");
         Ok(Self {
             filename: Some(yaml_filename.to_string()),
@@ -523,12 +523,12 @@ impl FlowState {
         flow_state
     }
 
-    fn from_commands(commands: &Vec<Command>) -> Result<Self, String> {
+    fn from_commands(commands: &Vec<Command>, date: NaiveDate) -> Result<Self, String> {
         let mut flow_state = FlowState::new();
         for command in commands {
             flow_state.execute_command_and_generate_inverse(command.clone())?;
         }
-        flow_state.rebuild_cache(NaiveDate::from_ymd_opt(1970,1,1).unwrap());
+        flow_state.rebuild_cache(date);
         flow_state.reset_ids();
         Ok(flow_state)
     }
@@ -1649,7 +1649,7 @@ mod tests {
         app.save_to_yaml().unwrap();
 
         // Load from YAML
-        if let Ok(loaded_app) = Project::load_from_yaml("database.yaml") {
+        if let Ok(loaded_app) = Project::load_from_yaml("database.yaml", NaiveDate::from_ymd_opt(2025, 8, 22).unwrap()) {
             // Verify loaded state
             assert!(loaded_app.flow_state.teams.values().any(|team| team.name == team_name));
             assert!(loaded_app.flow_state.resources.values().any(|res| res.name == resource_name));
@@ -1708,7 +1708,7 @@ impl TaskInspection {
         let mut task_inspector = TaskInspection::new(inspected_task_id);
 
         let (start_date, end_date) = {
-            let flow_state = FlowState::from_commands(&commands).unwrap();
+            let flow_state = FlowState::from_commands(&commands, date).unwrap();
             let s = flow_state.cache().day(0);
             let e = flow_state.cache().day(flow_state.cache().num_days() - 1);
             (s, e)
