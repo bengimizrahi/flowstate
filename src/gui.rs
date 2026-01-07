@@ -54,11 +54,12 @@ struct DrawingAids {
     previous_rect: Option<(ImVec2, ImVec2)>,
     row_counter: usize,
     pending_draws: Vec<([f32; 2], [f32; 4], String)>,
+    previous_assignee_in_inspection: Option<ResourceId>,
 }
 
 impl DrawingAids {
     pub fn new() -> Self {
-        DrawingAids { previous_rect: None, row_counter: 0, pending_draws: Vec::new() }
+        DrawingAids { previous_rect: None, row_counter: 0, pending_draws: Vec::new(), previous_assignee_in_inspection: None }
     }
 }
 
@@ -2895,6 +2896,7 @@ impl Gui {
 
     fn draw_inspection_content(&mut self, ui: &Ui, inspection: &TaskInspection) {
         self.drawing_aids.previous_rect = None;
+        self.drawing_aids.previous_assignee_in_inspection = None;
         for i in 0..inspection.flow_state.cache().num_days() {
             let day = inspection.flow_state.cache().day(i);
             if day < inspection.start_date {
@@ -2915,12 +2917,6 @@ impl Gui {
     fn draw_inspection_content_for_day(&mut self, ui: &Ui, inspection: &TaskInspection, date: &NaiveDate) {
         let _vday_token_id = ui.push_id(date.to_string());
         let assignee = inspection.assignee_history.get(date).copied().flatten();
-        let assignee_name = assignee
-            .and_then(|id| self.project.flow_state().resources.get(&id))
-            .map(|r| r.name.clone())
-            .unwrap_or_else(|| "Unassigned".to_string());
-        let assignee_cstr = std::ffi::CString::new(assignee_name).unwrap();
-        let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_Bullet;
     
         let worklogs = inspection.worklogs_history.get(date);
         let allocs = inspection.allocations_history.get(date);
@@ -2940,9 +2936,23 @@ impl Gui {
 
         ui.table_next_row();
         ui.table_next_column();
+
+        let assignee_name = assignee
+            .and_then(|id| self.project.flow_state().resources.get(&id))
+            .map(|r| r.name.clone())
+            .unwrap_or_else(|| "Unassigned".to_string());
+        let assignee_cstr = std::ffi::CString::new(assignee_name).unwrap();
         let expand_task = unsafe {
-            imgui::sys::igTreeNodeEx_Str(assignee_cstr.as_ptr(), flags as i32)
+            if assignee == self.drawing_aids.previous_assignee_in_inspection {
+                let empty_cstr = std::ffi::CString::new(String::from("")).unwrap();
+                let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_Leaf;
+                imgui::sys::igTreeNodeEx_Str(empty_cstr.as_ptr(), flags as i32)
+            } else {    
+                let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_Bullet;
+                imgui::sys::igTreeNodeEx_Str(assignee_cstr.as_ptr(), flags as i32)
+            }
         };
+        self.drawing_aids.previous_assignee_in_inspection = assignee;
 
         for i in 1..=inspection.flow_state.cache().num_days() {
             let day = inspection.flow_state.cache().day(i - 1);
