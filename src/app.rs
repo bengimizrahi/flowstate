@@ -445,7 +445,6 @@ impl Project {
         }
         let command_record = &self.command_stack[self.num_commands_applied - 1];
         println!("Command for undo: {:?}", command_record.undo_command);
-        let date: NaiveDate = NaiveDate::from_ymd_opt(1970,1,1).unwrap();
         self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command_record.undo_command.clone(), date)?;
         self.num_commands_applied -= 1;
         self.save_to_yaml()?;
@@ -458,7 +457,7 @@ impl Project {
         }
         let command_record = &self.command_stack[self.num_commands_applied];
         println!("Command for redo: {:?}", command_record.redo_command);
-        let date: NaiveDate = NaiveDate::from_ymd_opt(1970,1,1).unwrap();
+        self.flow_state.execute_command_generate_inverse_and_rebuild_cache(command_record.redo_command.clone(), date)?;
         self.num_commands_applied += 1;
         self.save_to_yaml()?;
         Ok(())
@@ -1408,7 +1407,6 @@ impl FlowStateCache {
                 }
             }
         }
-        let mut unassigned_task_alloc_rendering: HashMap<TaskId, HashMap<NaiveDate, Fraction>> = HashMap::new();
         let today = date;
         for task_id in &unassigned_tasks {
             let mut remaining_alloc = remaining_durations.get(task_id)
@@ -1420,7 +1418,7 @@ impl FlowStateCache {
                     date += Duration::days(1);
                 }
                 let work_to_allocate = remaining_alloc.min(TaskDuration { days: 1, fraction: 0 });
-                unassigned_task_alloc_rendering.entry(*task_id).or_default().insert(date, work_to_allocate.into());
+                task_alloc_rendering.entry(*task_id).or_default().insert(date, work_to_allocate.into());
                 remaining_alloc -= work_to_allocate;
                 date += Duration::days(1);
             }
@@ -1740,7 +1738,6 @@ impl TaskInspection {
             if let Some(cmds) = commands_by_date.get(&date_it) {
                 for cmd in cmds {
                     flow_state.execute_command_and_generate_inverse(cmd.clone()).unwrap();
-                    // You can now use try_extract_task_create_date here if needed
                 }
             }
             flow_state.rebuild_cache(date_it);

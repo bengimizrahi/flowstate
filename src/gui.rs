@@ -441,6 +441,14 @@ impl Gui {
                     self.gui_config.hide_worklogs = !self.gui_config.hide_worklogs;
                     self.gui_config.save_to_file();
                 }
+                if ui.menu_item_config("Hide Weekends in Inspection").selected(self.gui_config.hide_weekends_in_inspection).build() {
+                    self.gui_config.hide_weekends_in_inspection = !self.gui_config.hide_weekends_in_inspection;
+                    self.gui_config.save_to_file();
+                }
+                if ui.menu_item_config("Hide Non-Deviations in Inspection").selected(self.gui_config.hide_non_deviations_in_inspection).build() {
+                    self.gui_config.hide_non_deviations_in_inspection = !self.gui_config.hide_non_deviations_in_inspection;
+                    self.gui_config.save_to_file();
+                }
             }
             if let Some(_help_menu) = ui.begin_menu("Help") {
                 if ui.menu_item("About") {
@@ -2892,6 +2900,11 @@ impl Gui {
             if day < inspection.start_date {
                 continue;
             }
+            if self.gui_config.hide_weekends_in_inspection {
+                if day.weekday() == chrono::Weekday::Sat || day.weekday() == chrono::Weekday::Sun {
+                    continue;
+                }
+            }
             if day > self.get_timestamp().date_naive() {
                 break;
             }
@@ -2900,8 +2913,6 @@ impl Gui {
     }
 
     fn draw_inspection_content_for_day(&mut self, ui: &Ui, inspection: &TaskInspection, date: &NaiveDate) {
-        ui.table_next_row();
-        ui.table_next_column();
         let _vday_token_id = ui.push_id(date.to_string());
         let assignee = inspection.assignee_history.get(date).copied().flatten();
         let assignee_name = assignee
@@ -2910,13 +2921,28 @@ impl Gui {
             .unwrap_or_else(|| "Unassigned".to_string());
         let assignee_cstr = std::ffi::CString::new(assignee_name).unwrap();
         let flags = imgui::sys::ImGuiTreeNodeFlags_SpanFullWidth | imgui::sys::ImGuiTreeNodeFlags_Bullet;
-        let expand_task = unsafe {
-            imgui::sys::igTreeNodeEx_Str(assignee_cstr.as_ptr(), flags as i32)
-        };
-
+    
         let worklogs = inspection.worklogs_history.get(date);
         let allocs = inspection.allocations_history.get(date);
         let absences = inspection.absences_history.get(date);
+
+        if self.gui_config.hide_non_deviations_in_inspection {
+            if let Some(assignee) = assignee {
+                if let Some(worklog) = inspection.flow_state.worklogs.get(&inspection.task_id)
+                        .and_then(|wl_map| wl_map.get(&assignee))
+                        .and_then(|wl_date_map| wl_date_map.get(date)) {
+                    if worklog.fraction == 100 {
+                        return;
+                    }
+                }
+            }
+        }
+
+        ui.table_next_row();
+        ui.table_next_column();
+        let expand_task = unsafe {
+            imgui::sys::igTreeNodeEx_Str(assignee_cstr.as_ptr(), flags as i32)
+        };
 
         for i in 1..=inspection.flow_state.cache().num_days() {
             let day = inspection.flow_state.cache().day(i - 1);
@@ -2927,13 +2953,13 @@ impl Gui {
                     if let Some(worklog) = worklogs.and_then(|wl_map| wl_map.get(&day)).copied() {
                         self.draw_inspection_worklog(ui, worklog);
                     }
-                    if let Some(absence) = absences.and_then(|abs_map| abs_map.get(&day)).copied() {
-                        self.draw_inspection_absence(ui, absence);
-                    }
-                    let alloc = allocs.and_then(|alloc_map| alloc_map.get(&day)).copied();
-                    let worklog = worklogs.and_then(|wl_map| wl_map.get(&day)).copied();
-                    self.draw_inspection_alloc(ui, worklog, alloc);
                 }
+                if let Some(absence) = absences.and_then(|abs_map| abs_map.get(&day)).copied() {
+                    self.draw_inspection_absence(ui, absence);
+                }
+                let alloc = allocs.and_then(|alloc_map| alloc_map.get(&day)).copied();
+                let worklog = worklogs.and_then(|wl_map| wl_map.get(&day)).copied();
+                self.draw_inspection_alloc(ui, worklog, alloc);
             }
             self.draw_milestone(ui, &day);
             if date == &day {
@@ -3125,6 +3151,8 @@ struct GuiConfig {
     pub config_filename: String,
     pub ticket_prefix: String,
     pub hide_worklogs: bool,
+    pub hide_weekends_in_inspection: bool,
+    pub hide_non_deviations_in_inspection: bool,
     pub debug_mode: bool,
     pub recent_project_files: Vec<String>,
 }
@@ -3140,6 +3168,8 @@ impl GuiConfig {
             config_filename: path.to_string(),
             ticket_prefix: "PROJ-".to_string(),
             hide_worklogs: false,
+            hide_weekends_in_inspection: false,
+            hide_non_deviations_in_inspection: false,
             debug_mode: false,
             recent_project_files: Vec::new(),
         }
