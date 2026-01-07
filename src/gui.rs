@@ -2882,6 +2882,9 @@ impl Gui {
             if day < inspection.start_date {
                 continue;
             }
+            if day > self.get_timestamp().date_naive() {
+                break;
+            }
             self.draw_inspection_content_for_day(ui, inspection, &day);
         }
     }

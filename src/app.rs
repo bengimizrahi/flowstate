@@ -1706,6 +1706,19 @@ impl TaskInspection {
 
     pub fn from(inspected_task_id: TaskId, commands: Vec<Command>, date: NaiveDate) -> Self {
         let mut task_inspector = TaskInspection::new(inspected_task_id);
+            let extract_create_date = |mut commands: Vec<Command>| -> Option<NaiveDate> {
+            while let Some(c) = commands.pop() {
+                if let CommandDetails::CreateTask { id, .. } = c.details {
+                    if id == inspected_task_id {
+                        return Some(c.timestamp.date_naive());
+                    }
+                } else if let CommandDetails::CompoundCommand { commands: inner_commands } = c.details {
+                    commands.extend(inner_commands);
+                }
+            }
+            None
+        };
+        task_inspector.start_date = extract_create_date(commands.clone()).unwrap();
 
         let (start_date, end_date) = {
             let flow_state = FlowState::from_commands(&commands, date).unwrap();
@@ -1714,10 +1727,12 @@ impl TaskInspection {
             (s, e)
         };
 
+        
         let mut commands_by_date = HashMap::new();
         for cmd in commands {
             let date = cmd.timestamp.date_naive();
             commands_by_date.entry(date).or_insert_with(Vec::new).push(cmd);
+            
         }
         let mut flow_state = FlowState::new();
         let mut date_it = start_date;
@@ -1725,12 +1740,12 @@ impl TaskInspection {
             if let Some(cmds) = commands_by_date.get(&date_it) {
                 for cmd in cmds {
                     flow_state.execute_command_and_generate_inverse(cmd.clone()).unwrap();
+                    // You can now use try_extract_task_create_date here if needed
                 }
             }
             flow_state.rebuild_cache(date_it);
             let assignee = flow_state.tasks.get(&inspected_task_id)
                 .and_then(|task| task.assignee);
-            task_inspector.start_date = start_date.min(date_it);
             task_inspector.assignee_history.insert(date_it, assignee);
             task_inspector.allocations_history.insert(date_it, 
                     flow_state.cache().task_alloc_rendering
