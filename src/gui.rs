@@ -2779,14 +2779,24 @@ impl Gui {
             task.ticket,
             task.title.chars().take(20).collect::<String>()
         );
-        if let Some(_res_tab_item) = ui.tab_item(task_label) {
+
+        let mut open = true;
+        if let Some(_tab_token) = TabItem::new(&task_label)
+            .opened(&mut open)
+            .begin(ui)
+        {
             let _id = ui.push_id_usize(inspection.task_id as usize);
             if self.draw_inspection_table(ui, inspection, "##inspection_gantt_chart") {
                 self.draw_inspection_calendar_row(ui, inspection);
                 self.draw_inspection_milestones_row(ui, inspection);
                 self.draw_inspection_content(ui, inspection);
-                unsafe {imgui::sys::igEndTable();}
+                unsafe { imgui::sys::igEndTable(); }
             }
+            // `_tab_token` drops here (EndTabItem)
+        }
+
+        if !open {
+            self.inspections.retain(|insp| insp.task_id != inspection.task_id);
         }
     }
 
