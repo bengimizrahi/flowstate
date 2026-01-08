@@ -118,7 +118,7 @@ impl Gui {
     pub fn run(mut self) {
         let bold_font_for_init = self.bold_font.clone();
         support::init_with_startup(
-            file!(),
+            "FlowState v1.1.0",
             move |ctx, renderer, _| {
                 ctx.set_ini_filename(Some(std::path::PathBuf::from("imgui.ini")));
                 let mut bold_font_handle = bold_font_for_init.borrow_mut();
