@@ -2924,12 +2924,22 @@ impl Gui {
 
         if self.gui_config.hide_non_deviations_in_inspection {
             if let Some(assignee) = assignee {
-                if let Some(worklog) = inspection.flow_state.worklogs.get(&inspection.task_id)
+                let worklog = inspection.flow_state.worklogs.get(&inspection.task_id)
                         .and_then(|wl_map| wl_map.get(&assignee))
-                        .and_then(|wl_date_map| wl_date_map.get(date)) {
-                    if worklog.fraction == 100 {
-                        return;
-                    }
+                        .and_then(|wl_date_map| wl_date_map.get(date));
+                let absence = inspection.flow_state.cache().resource_absence_rendering.get(&assignee)
+                        .and_then(|abs_map| abs_map.get(date))
+                        .copied();
+                let w = match worklog {
+                    Some(wl) => wl.fraction,
+                    None => 0,
+                };
+                let a = match absence {
+                    Some(abs) => abs,
+                    None => 0,
+                };
+                if (w == 100 && a == 0) || (w == 0 && a == 100) {
+                    return;
                 }
             }
         }
