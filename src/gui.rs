@@ -1,7 +1,6 @@
 use crate::app::*;
 use crate::app_next::*;
 use crate::app::TaskInspection;
-use crate::gui;
 use crate::support;
 use imgui::sys::igGetCursorScreenPos;
 use imgui::sys::igGetTextLineHeight;
@@ -423,7 +422,7 @@ impl Gui {
                     }
                 }
                 if let Some(_favorite_filter_menu) = ui.begin_menu("Favorites") {
-                    for (filter_id, filter) in &filters {
+                    for (_filter_id, filter) in &filters {
                         let is_favorite = filter.is_favorite;
                         if ui.menu_item_config(&filter.name).selected(is_favorite).build() {
                             self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::CreateModifyFilter {
@@ -531,7 +530,7 @@ impl Gui {
         }
     }
 
-    fn draw_gantt_chart_table(&mut self, ui: &Ui, id: &str) -> bool {
+    fn draw_gantt_chart_table(&mut self, _ui: &Ui, id: &str) -> bool {
         let table_id = std::ffi::CString::new(id).unwrap();
         let flags = imgui::sys::ImGuiTableFlags_Borders
             | imgui::sys::ImGuiTableFlags_HighlightHoveredColumn
@@ -632,7 +631,7 @@ impl Gui {
             }
         }
         ui.table_next_row();
-        for i in 1..=self.project.flow_state().cache().num_days() {
+        for _i in 1..=self.project.flow_state().cache().num_days() {
             if ui.table_next_column() {
                 let bg_color = ui.style_color(StyleColor::TableHeaderBg);
                 ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
@@ -974,7 +973,7 @@ impl Gui {
         }
     }
 
-    fn draw_absence(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, resource: &Resource) {
+    fn draw_absence(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, _resource: &Resource) {
         if let Some(absence) = self.project.flow_state().cache().resource_absence_rendering.get(resource_id)
                 .and_then(|r| r.get(day)) {
             let cell_height = unsafe { igGetTextLineHeight() };
@@ -1086,7 +1085,7 @@ impl Gui {
         }
     }
 
-    fn draw_alloc_as_watcher(&mut self, ui: &Ui, day: &NaiveDate, resource_id: Option<&ResourceId>, task_id: &TaskId, task: &Task) {
+    fn draw_alloc_as_watcher(&mut self, ui: &Ui, day: &NaiveDate, resource_id: Option<&ResourceId>, task_id: &TaskId, _task: &Task) {
         let cell_height = unsafe { igGetTextLineHeight() };
         let cell_padding = unsafe { ui.style().cell_padding };
         let effective_cell_height = cell_height + (cell_padding[1]);
@@ -1095,7 +1094,7 @@ impl Gui {
         let worklog = self.project.flow_state().worklogs.get(task_id)
             .and_then(|r| r.get(resource_id.unwrap_or(&0)))
             .and_then(|r| r.get(day));
-        let alloc = if let Some(resource_id) = resource_id {
+        let alloc = if let Some(_resource_id) = resource_id {
             self.project.flow_state().cache().task_alloc_rendering.get(task_id)
                 .and_then(|r| r.get(day))
         } else {
@@ -1176,7 +1175,7 @@ impl Gui {
         }
     }
 
-    fn draw_worklog(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, resource: &Resource, task_id: &TaskId, task: &Task) {
+    fn draw_worklog(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, _resource: &Resource, task_id: &TaskId, _task: &Task) {
         let cell_height = unsafe { igGetTextLineHeight() };
         let cell_padding = unsafe { ui.style().cell_padding };
         let effective_cell_height = cell_height + 1.5 * cell_padding[1];
@@ -1208,7 +1207,7 @@ impl Gui {
         }
     }
 
-    fn draw_worklog_on_others_tasks(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, resource: &Resource) {
+    fn draw_worklog_on_others_tasks(&mut self, ui: &Ui, day: &NaiveDate, resource_id: &ResourceId, _resource: &Resource) {
         let cell_height = unsafe { igGetTextLineHeight() };
         let cell_padding = unsafe { ui.style().cell_padding };
         let effective_cell_height = cell_height + 1.5 * cell_padding[1];
@@ -1276,8 +1275,8 @@ impl Gui {
     }
 
     fn draw_milestone(&mut self, ui: &Ui, day: &NaiveDate) {
-        let today = chrono::Local::now().date_naive();
-        if let Some(milestones) = self.project.flow_state().cache().date_to_milestones.get(day) {
+        let _today = chrono::Local::now().date_naive();
+        if let Some(_milestones) = self.project.flow_state().cache().date_to_milestones.get(day) {
             let cell_height = unsafe { igGetTextLineHeight() };
             let cell_padding = unsafe { ui.style().cell_padding };
             let effective_cell_height = cell_height + (2.0 * cell_padding[1]);
@@ -1311,7 +1310,7 @@ impl Gui {
         }
     }
 
-    fn draw_gantt_chart_resources_team_popup(&mut self, ui: &Ui, team_id: &TeamId, team: &Team) {
+    fn draw_gantt_chart_resources_team_popup(&mut self, ui: &Ui, _team_id: &TeamId, team: &Team) {
         if let Some(_popup) = ui.begin_popup_context_item() {
             if let Some(_rename_team_menu) = ui.begin_menu("Rename Team") {
                 if let Some(_child_window) = ui.child_window("##rename_team_menu")
@@ -1378,7 +1377,7 @@ impl Gui {
         }
     }
 
-    fn draw_gantt_chart_resources_team_resource_popup(&mut self, ui: &Ui, resource_id: &ResourceId, resource: &Resource) {
+    fn draw_gantt_chart_resources_team_resource_popup(&mut self, ui: &Ui, _resource_id: &ResourceId, resource: &Resource) {
         let is_info_filled_in =
                 |task_title: &str, ticket: &str, duration: f32| {
             !task_title.is_empty() && !ticket.is_empty() && duration > 0.0
@@ -1388,24 +1387,15 @@ impl Gui {
                 if let Some(_child_window) = ui.child_window("##create_task_menu")
                         .size(CREATE_TASK_CHILD_WINDOW_SIZE)
                         .begin() {
-                    let mut can_create_task = false;
                     if ui.input_text("##ticket", &mut self.ticket_input_text_buffer)
                             .enter_returns_true(true)
                             .hint("Enter ticket number")
                             .build() {
-                        can_create_task = is_info_filled_in(
-                            &self.task_title_input_text_buffer,
-                            &self.ticket_input_text_buffer,
-                            self.task_duration_days);
                     }
                     if ui.input_text("##task_title", &mut self.task_title_input_text_buffer)
                             .enter_returns_true(true)
                             .hint("Enter task title")
                             .build() {
-                        can_create_task = is_info_filled_in(
-                            &self.task_title_input_text_buffer,
-                            &self.ticket_input_text_buffer,
-                            self.task_duration_days);
                     }
                     ui.slider_config("##duration_slider", 0.0, 30.0)
                         .display_format("%.f days")
@@ -1842,7 +1832,7 @@ impl Gui {
         }
     }
 
-    fn draw_gantt_chart_resources_team_resource_task_as_watcher_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task, resource_id: &ResourceId, resource: &Resource) {
+    fn draw_gantt_chart_resources_team_resource_task_as_watcher_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task, _resource_id: &ResourceId, resource: &Resource) {
         if let Some(_popup) = ui.begin_popup_context_item() {
             if let Some(_assign_to_menu) = ui.begin_menu("Assign to") {
                 let mut resources: Vec<_> = self.project.flow_state().resources.values().cloned().collect();
@@ -2589,7 +2579,7 @@ impl Gui {
         }
     }
 
-    fn draw_gantt_chart_resources_team_unassigned_task_content_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task, day: &NaiveDate) {
+    fn draw_gantt_chart_resources_team_unassigned_task_content_popup(&mut self, ui: &Ui, task_id: &TaskId, task: &Task, _day: &NaiveDate) {
         if let Some(_popup) = ui.begin_popup_context_item() {
             if let Some(_update_duration_menu) = ui.begin_menu("Update Duration") {
                 if let Some(_child_window) = ui.child_window("##update_duration_menu")
@@ -2683,7 +2673,7 @@ impl Gui {
                     worklogs.keys()
                         .filter_map(|&resource_id| {
                             self.project.flow_state().resources.get(&resource_id)
-                                .map(|resource| (resource_id, RoleOfResourceInTask::WorklogContributor))
+                                .map(|_resource| (resource_id, RoleOfResourceInTask::WorklogContributor))
                         })
                         .collect()
                 })
@@ -2772,7 +2762,7 @@ impl Gui {
         self.drawing_aids.pending_draws.clear();
     }
 
-    fn open_task_in_jira(&mut self, ui:& Ui, task: &Task) {
+    fn open_task_in_jira(&mut self, _ui:& Ui, task: &Task) {
         let jira_url = format!("https://jiradc.ext.net.nokia.com/browse/{}", task.ticket);
         webbrowser::open(&jira_url).unwrap_or_else(|e| {
             gui_log!(self, "Failed to open JIRA URL: {}", e);
@@ -2810,7 +2800,7 @@ impl Gui {
         }
     }
 
-    fn draw_inspection_table(&mut self, ui: &Ui, inspection: &TaskInspection, id: &str) -> bool {
+    fn draw_inspection_table(&mut self, _ui: &Ui, inspection: &TaskInspection, id: &str) -> bool {
         let table_id = std::ffi::CString::new(id).unwrap();
         let flags = imgui::sys::ImGuiTableFlags_Borders
             | imgui::sys::ImGuiTableFlags_HighlightHoveredColumn
@@ -2887,7 +2877,7 @@ impl Gui {
             }
         }
         ui.table_next_row();
-        for i in 1..=self.project.flow_state().cache().num_days() {
+        for _i in 1..=self.project.flow_state().cache().num_days() {
             if ui.table_next_column() {
                 let bg_color = ui.style_color(StyleColor::TableHeaderBg);
                 ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
@@ -3127,7 +3117,7 @@ impl Gui {
         }
     }
 
-    fn draw_inspection_current_day(&mut self, ui: &Ui, day: &NaiveDate) {
+    fn draw_inspection_current_day(&mut self, ui: &Ui, _day: &NaiveDate) {
         let cell_height = unsafe { igGetTextLineHeight() };
         let cell_padding = unsafe { ui.style().cell_padding };
         let effective_cell_height = cell_height + (2.0 * cell_padding[1]);

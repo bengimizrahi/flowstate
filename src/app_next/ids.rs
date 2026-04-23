@@ -3,3 +3,7 @@ pub type ResourceName = String;
 pub type LabelName = String;
 pub type FilterName = String;
 pub type TaskId = u64;
+pub type TeamId = u64;
+pub type ResourceId = u64;
+pub type LabelId = u64;
+pub type FilterId = u64;
