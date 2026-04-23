@@ -14,7 +14,7 @@ pub struct Command {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CommandDetails {
-    NoOp,
+    Void,
     CreateTeam{
         name: TeamName,
     },
@@ -439,7 +439,7 @@ impl FlowState {
     fn execute_command_and_generate_inverse(&mut self, command: Command) -> Result<Command, String> {
         let timestamp = command.timestamp;
         match command.details {
-            CommandDetails::NoOp => Ok(Command{timestamp, details: CommandDetails::NoOp}),
+            CommandDetails::Void => Ok(Command{timestamp, details: CommandDetails::Void}),
             CommandDetails::CreateTeam { name} => {
                 if self.teams.values().any(|team| team.name == name) {
                     return Err(format!("A team with the name '{}' already exists", name));
