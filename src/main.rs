@@ -1,5 +1,6 @@
 mod gui;
 mod app;
+mod app_next;
 mod support;
 
 fn main() {
