@@ -10,7 +10,7 @@ impl Gui {
                 self.draw_gantt_chart_tasks(ui);
             }
             for inspection in self.inspections.clone() {
-                self.draw_inspection_tab(ui, &inspection);
+                self.draw_task_inspection_tab(ui, &inspection);
             }
             if let Some(_debug_tab_item) = ui.tab_item("Debug") {
                 self.draw_debug(ui);

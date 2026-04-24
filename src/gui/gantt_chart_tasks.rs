@@ -1,5 +1,11 @@
 use crate::gui::*;
 
+enum RoleOfResourceInTask {
+    Assignee,
+    WorklogContributor,
+    Watcher,
+}
+
 impl Gui {
     pub(super) fn draw_gantt_chart_tasks(&mut self, ui: &Ui) {
         if self.draw_gantt_chart_table(ui, "##tasks_gantt_chart") {
