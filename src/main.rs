@@ -1,8 +1,6 @@
-mod gui;
-mod app;
-mod support;
+use flowstate::gui::Gui;
 
 fn main() {
-    let gui = gui::Gui::new();
+    let gui = Gui::new();
     gui.run();
 }
