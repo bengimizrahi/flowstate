@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc, NaiveDate, NaiveDateTime, Duration};
 use chrono::Datelike;
 use std::collections::BTreeSet;
-use crate::app_next::*;
+use crate::app::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Absence {

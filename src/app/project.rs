@@ -1,4 +1,4 @@
-use crate::app_next::*;
+use crate::app::*;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -104,7 +104,7 @@ impl Project {
 
 #[cfg(test)]
 mod tests {
-    use crate::app_next::*;
+    use crate::app::*;
     use chrono::{NaiveDate, Utc};
 
     #[test]

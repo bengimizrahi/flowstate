@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use chrono::NaiveDate;
-use crate::app_next::*;
+use crate::app::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Command {
