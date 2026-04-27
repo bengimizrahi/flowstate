@@ -30,17 +30,17 @@ impl TaskInspection {
     pub fn from(inspected_task_id: TaskId, commands: Vec<Command>, date: NaiveDate) -> Self {
         let mut task_inspector = TaskInspection::new(inspected_task_id);
             let extract_create_date = |mut commands: Vec<Command>| -> Option<NaiveDate> {
-            while let Some(c) = commands.pop() {
-                if let CommandDetails::CreateTask { id, .. } = c.details {
-                    if id == inspected_task_id {
-                        return Some(c.timestamp.date_naive());
+                while let Some(c) = commands.pop() {
+                    if let CommandDetails::CreateTask { id, .. } = c.details {
+                        if id == inspected_task_id {
+                            return Some(c.timestamp.date_naive());
+                        }
+                    } else if let CommandDetails::CompoundCommand { commands: inner_commands } = c.details {
+                        commands.extend(inner_commands);
                     }
-                } else if let CommandDetails::CompoundCommand { commands: inner_commands } = c.details {
-                    commands.extend(inner_commands);
                 }
-            }
-            None
-        };
+                None
+            };
         task_inspector.start_date = extract_create_date(commands.clone()).unwrap();
 
         let (start_date, end_date) = {
