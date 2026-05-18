@@ -145,6 +145,68 @@ impl Gui {
         }
     }
 
+    /// "Assign to" from the resources Gantt: when the task already has an assignee, run
+    /// `PrioritizeTask` then `AssignTask` so undo restores the source list order.
+    fn gantt_resources_assign_task_from_menu(&mut self, task_id: TaskId, resource_name: ResourceName) {
+        let timestamp = self.get_timestamp();
+        let date = timestamp.date_naive();
+        let fs = self.project.flow_state();
+        let Some(task) = fs.tasks.get(&task_id) else {
+            return;
+        };
+        let already_on_this_resource = task
+            .assignee
+            .and_then(|rid| fs.resources.get(&rid).map(|r| r.name.clone()));
+        if already_on_this_resource.as_ref() == Some(&resource_name) {
+            return;
+        }
+
+        if task.assignee.is_some() {
+            let commands = vec![
+                Command {
+                    timestamp,
+                    details: CommandDetails::PrioritizeTask {
+                        task_id,
+                        to_top: true,
+                    },
+                },
+                Command {
+                    timestamp,
+                    details: CommandDetails::AssignTask {
+                        task_id,
+                        resource_name,
+                    },
+                },
+            ];
+            self.project
+                .invoke_command(
+                    Command {
+                        timestamp,
+                        details: CommandDetails::CompoundCommand { commands },
+                    },
+                    date,
+                )
+                .unwrap_or_else(|e| {
+                    gui_log!(self, "Failed to assign task to resource: {e}");
+                });
+        } else {
+            self.project
+                .invoke_command(
+                    Command {
+                        timestamp,
+                        details: CommandDetails::AssignTask {
+                            task_id,
+                            resource_name,
+                        },
+                    },
+                    date,
+                )
+                .unwrap_or_else(|e| {
+                    gui_log!(self, "Failed to assign task to resource: {e}");
+                });
+        }
+    }
+
     pub(super) fn draw_gantt_chart_resources(&mut self, ui: &Ui) {
         if self.draw_gantt_chart_table(ui, "##resources_gantt_chart") {
             self.draw_gantt_chart_calendar_row(ui);
@@ -761,12 +823,7 @@ impl Gui {
                 resources.sort_by(|alloc, b| alloc.name.cmp(&b.name));
                 for resource in resources {
                     if ui.menu_item(resource.name.clone()) {
-                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
-                            task_id: *task_id,
-                            resource_name: resource.name,
-                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
-                            gui_log!(self, "Failed to assign task to resource: {e}");
-                        });
+                        self.gantt_resources_assign_task_from_menu(*task_id, resource.name.clone());
                     }
                 }
             }
@@ -988,12 +1045,7 @@ impl Gui {
                 resources.sort_by(|alloc, b| alloc.name.cmp(&b.name));
                 for resource in resources {
                     if ui.menu_item(resource.name.clone()) {
-                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
-                            task_id: *task_id,
-                            resource_name: resource.name,
-                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
-                            gui_log!(self, "Failed to assign task to resource: {e}");
-                        });
+                        self.gantt_resources_assign_task_from_menu(*task_id, resource.name.clone());
                     }
                 }
             }
@@ -1511,12 +1563,7 @@ impl Gui {
                 resources.sort_by(|alloc, b| alloc.name.cmp(&b.name));
                 for resource in resources {
                     if ui.menu_item(resource.name.clone()) {
-                        self.project.invoke_command(Command { timestamp: self.get_timestamp(), details: CommandDetails::AssignTask {
-                            task_id: *task_id,
-                            resource_name: resource.name,
-                        }}, self.get_timestamp().date_naive()).unwrap_or_else(|e| {
-                            gui_log!(self, "Failed to assign task to resource: {e}");
-                        });
+                        self.gantt_resources_assign_task_from_menu(*task_id, resource.name.clone());
                     }
                 }
             }
