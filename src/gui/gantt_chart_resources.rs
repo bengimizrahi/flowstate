@@ -1,6 +1,10 @@
 use crate::gui::*;
 use crate::gui_log;
 
+/// Drag-and-drop payload name for moving tasks between resource rows in the resources Gantt.
+/// ImGui limits this string to fewer than 32 bytes including the trailing NUL.
+const GANTT_RESOURCES_TASK_DRAG: &str = "FS_GANTT_RES_TASK";
+
 impl Gui {
     pub(super) fn draw_gantt_chart_resources(&mut self, ui: &Ui) {
         if self.draw_gantt_chart_table(ui, "##resources_gantt_chart") {
@@ -139,19 +143,36 @@ impl Gui {
             ui.table_set_bg_color(TableBgTarget::CELL_BG, bg_color);
             imgui::sys::igTreeNodeEx_Str(task_title_cstr.as_ptr(), flags as i32)
         };
-        if ui.drag_drop_source_config("DND_TASK").begin().is_some() {
-            self.drag_drop_task_id = Some(*task_id);
-        }
+
+        if let Some(_tooltip) = ui.drag_drop_source_config(GANTT_RESOURCES_TASK_DRAG).begin_payload(*task_id) {}
+
         if let Some(target) = ui.drag_drop_target() {
-            if target
-                .accept_payload_empty("DND_TASK", DragDropFlags::empty())
-                .is_some()
+            if let Some(Ok(payload)) =
+                target.accept_payload::<TaskId, _>(GANTT_RESOURCES_TASK_DRAG, DragDropFlags::empty())
             {
-                let msg = self.drag_drop_task_id.unwrap();
-                println!("Dropped task {msg} on task {}", *task_id);
+                if payload.delivery {
+                    let dragged_task_id = payload.data;
+                    if dragged_task_id != *task_id {
+                        self.project
+                            .invoke_command(
+                                Command {
+                                    timestamp: self.get_timestamp(),
+                                    details: CommandDetails::AssignTask {
+                                        task_id: dragged_task_id,
+                                        resource_name: resource.name.clone(),
+                                    },
+                                },
+                                self.get_timestamp().date_naive(),
+                            )
+                            .unwrap_or_else(|e| {
+                                gui_log!(self, "Failed to assign task via drag-drop: {e}");
+                            });
+                    }
+                }
             }
             target.pop();
         }
+
         if ui.is_item_hovered() && ui.is_mouse_clicked(MouseButton::Middle) {
             self.open_task_in_jira(ui, &task);
         }

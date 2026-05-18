@@ -47,22 +47,33 @@ impl TaskInspection {
             let flow_state = FlowState::from_commands(&commands, date).unwrap();
             let s = flow_state.cache().day(0);
             let e = flow_state.cache().day(flow_state.cache().num_days() - 1);
+            dbg!((s, e));
             (s, e)
         };
 
-        
+        let mut failed_commands: Vec<Command> = Vec::new();
         let mut commands_by_date = HashMap::new();
         for cmd in commands {
             let date = cmd.timestamp.date_naive();
             commands_by_date.entry(date).or_insert_with(Vec::new).push(cmd);
-            
         }
         let mut flow_state = FlowState::new();
         let mut date_it = start_date;
         while date_it <= end_date {
+            failed_commands.retain(|cmd| {
+                flow_state
+                    .execute_command_and_generate_inverse(cmd.clone())
+                    .is_err()
+            });
             if let Some(cmds) = commands_by_date.get(&date_it) {
                 for cmd in cmds {
-                    flow_state.execute_command_and_generate_inverse(cmd.clone()).unwrap();
+                    println!("executing command: {:?}", cmd);
+                    if flow_state
+                        .execute_command_and_generate_inverse(cmd.clone())
+                        .is_err()
+                    {
+                        failed_commands.push(cmd.clone());
+                    }
                 }
             }
             flow_state.rebuild_cache(date_it);
@@ -87,8 +98,9 @@ impl TaskInspection {
                         }).unwrap_or_default());
             date_it = date_it + Duration::days(1);
         }
-
+        
         task_inspector.flow_state = flow_state;
+        dbg!((task_inspector.flow_state.cache().start_date, task_inspector.flow_state.cache().end_date));
         task_inspector
     }
 }

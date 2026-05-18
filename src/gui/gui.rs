@@ -10,7 +10,6 @@ pub struct Gui {
     pub(super) selected_filter: Option<FilterId>,
     pub(super) inspections: Vec<TaskInspection>,
 
-    pub(super) drag_drop_task_id: Option<TaskId>,
     pub(super) date_offset: i32,
 
     pub(super) bold_font: std::rc::Rc<std::cell::RefCell<Option<FontId>>>,
@@ -46,7 +45,6 @@ impl Gui {
             selected_filter: None,
             inspections: Vec::new(),
 
-            drag_drop_task_id: None,
             date_offset: 0,
 
             bold_font: std::rc::Rc::new(std::cell::RefCell::new(None)),
