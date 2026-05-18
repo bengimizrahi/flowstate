@@ -6,6 +6,107 @@ use crate::gui_log;
 const GANTT_RESOURCES_TASK_DRAG: &str = "FS_GANTT_RES_TASK";
 
 impl Gui {
+    /// Drag `dragged_task_id` onto the row for `drop_target_task_id` under `target_resource`:
+    /// same resource → priority change only; otherwise assign then move before the drop target
+    /// (index 0 = top priority).
+    fn gantt_resources_apply_task_drag_drop(
+        &mut self,
+        dragged_task_id: TaskId,
+        drop_target_task_id: TaskId,
+        target_resource_id: &ResourceId,
+        target_resource: &Resource,
+    ) {
+        let timestamp = self.get_timestamp();
+        let date = timestamp.date_naive();
+        let flow_state = self.project.flow_state();
+        let Some(target_res) = flow_state.resources.get(target_resource_id) else {
+            gui_log!(self, "Drag-and-drop: target resource not found");
+            return;
+        };
+        let assigned = &target_res.assigned_tasks;
+        let Some(drop_idx) = assigned.iter().position(|&id| id == drop_target_task_id) else {
+            gui_log!(self, "Drag-and-drop: drop target task is not on the target resource");
+            return;
+        };
+        let dragged_assignee = flow_state
+            .tasks
+            .get(&dragged_task_id)
+            .and_then(|t| t.assignee);
+
+        if dragged_assignee == Some(*target_resource_id) {
+            let Some(from_idx) = assigned.iter().position(|&id| id == dragged_task_id) else {
+                gui_log!(self, "Drag-and-drop: dragged task is not on the target resource");
+                return;
+            };
+            let insert_to = if from_idx < drop_idx {
+                drop_idx - 1
+            } else {
+                drop_idx
+            };
+            let delta = insert_to as i32 - from_idx as i32;
+            if delta == 0 {
+                return;
+            }
+            self.project
+                .invoke_command(
+                    Command {
+                        timestamp,
+                        details: CommandDetails::ChangeTaskPriority {
+                            task_id: dragged_task_id,
+                            delta,
+                        },
+                    },
+                    date,
+                )
+                .unwrap_or_else(|e| {
+                    gui_log!(self, "Failed to reorder task via drag-drop: {e}");
+                });
+        } else if drop_idx == 0 {
+            self.project
+                .invoke_command(
+                    Command {
+                        timestamp,
+                        details: CommandDetails::AssignTask {
+                            task_id: dragged_task_id,
+                            resource_name: target_resource.name.clone(),
+                        },
+                    },
+                    date,
+                )
+                .unwrap_or_else(|e| {
+                    gui_log!(self, "Failed to assign task via drag-drop: {e}");
+                });
+        } else {
+            let commands = vec![
+                Command {
+                    timestamp,
+                    details: CommandDetails::AssignTask {
+                        task_id: dragged_task_id,
+                        resource_name: target_resource.name.clone(),
+                    },
+                },
+                Command {
+                    timestamp,
+                    details: CommandDetails::ChangeTaskPriority {
+                        task_id: dragged_task_id,
+                        delta: drop_idx as i32,
+                    },
+                },
+            ];
+            self.project
+                .invoke_command(
+                    Command {
+                        timestamp,
+                        details: CommandDetails::CompoundCommand { commands },
+                    },
+                    date,
+                )
+                .unwrap_or_else(|e| {
+                    gui_log!(self, "Failed to assign and prioritize task via drag-drop: {e}");
+                });
+        }
+    }
+
     pub(super) fn draw_gantt_chart_resources(&mut self, ui: &Ui) {
         if self.draw_gantt_chart_table(ui, "##resources_gantt_chart") {
             self.draw_gantt_chart_calendar_row(ui);
@@ -153,20 +254,12 @@ impl Gui {
                 if payload.delivery {
                     let dragged_task_id = payload.data;
                     if dragged_task_id != *task_id {
-                        self.project
-                            .invoke_command(
-                                Command {
-                                    timestamp: self.get_timestamp(),
-                                    details: CommandDetails::AssignTask {
-                                        task_id: dragged_task_id,
-                                        resource_name: resource.name.clone(),
-                                    },
-                                },
-                                self.get_timestamp().date_naive(),
-                            )
-                            .unwrap_or_else(|e| {
-                                gui_log!(self, "Failed to assign task via drag-drop: {e}");
-                            });
+                        self.gantt_resources_apply_task_drag_drop(
+                            dragged_task_id,
+                            *task_id,
+                            resource_id,
+                            resource,
+                        );
                     }
                 }
             }
