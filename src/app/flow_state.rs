@@ -360,6 +360,12 @@ impl FlowState {
                 if let Some(task) = self.tasks.get_mut(&task_id) {
                     match task.assignee {
                         Some(old_assignee_id) => {
+                            if old_assignee_id == resource_id {
+                                return Err(format!(
+                                    "Task with id {} is already assigned to '{}'",
+                                    task_id, resource_name
+                                ));
+                            }
                             let old_assignee_name = self.resources.get(&old_assignee_id)
                                 .map(|res| res.name.clone())
                                 .ok_or_else(|| format!("Old assignee resource with id {} not found", old_assignee_id))?;

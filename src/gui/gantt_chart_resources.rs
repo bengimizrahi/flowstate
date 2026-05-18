@@ -7,34 +7,35 @@ const GANTT_RESOURCES_TASK_DRAG: &str = "FS_GANTT_RES_TASK";
 
 impl Gui {
     /// Drag `dragged_task_id` onto the row for `drop_target_task_id` under `target_resource`:
-    /// same resource → priority change only; otherwise assign then move before the drop target
-    /// (index 0 = top priority).
+    /// same resource → priority change only; from unassigned → assign (+ priority on target);
+    /// from another assigned resource → compound: move to top on source, assign, then
+    /// `ChangeTaskPriority` by `drop_idx` so undo composes correctly with `AssignTask`'s
+    /// “insert at 0” inverse.
     fn gantt_resources_apply_task_drag_drop(
         &mut self,
         dragged_task_id: TaskId,
         drop_target_task_id: TaskId,
         target_resource_id: &ResourceId,
-        target_resource: &Resource,
     ) {
         let timestamp = self.get_timestamp();
         let date = timestamp.date_naive();
         let flow_state = self.project.flow_state();
-        let Some(target_res) = flow_state.resources.get(target_resource_id) else {
+        let Some(target_resource) = flow_state.resources.get(target_resource_id) else {
             gui_log!(self, "Drag-and-drop: target resource not found");
             return;
         };
-        let assigned = &target_res.assigned_tasks;
-        let Some(drop_idx) = assigned.iter().position(|&id| id == drop_target_task_id) else {
+        let assigned_tasks_of_target_resource = &target_resource.assigned_tasks;
+        let Some(drop_idx) = assigned_tasks_of_target_resource.iter().position(|&id| id == drop_target_task_id) else {
             gui_log!(self, "Drag-and-drop: drop target task is not on the target resource");
             return;
         };
-        let dragged_assignee = flow_state
+        let source_resource = flow_state
             .tasks
             .get(&dragged_task_id)
             .and_then(|t| t.assignee);
 
-        if dragged_assignee == Some(*target_resource_id) {
-            let Some(from_idx) = assigned.iter().position(|&id| id == dragged_task_id) else {
+        if source_resource == Some(*target_resource_id) {
+            let Some(from_idx) = assigned_tasks_of_target_resource.iter().position(|&id| id == dragged_task_id) else {
                 gui_log!(self, "Drag-and-drop: dragged task is not on the target resource");
                 return;
             };
@@ -61,9 +62,24 @@ impl Gui {
                 .unwrap_or_else(|e| {
                     gui_log!(self, "Failed to reorder task via drag-drop: {e}");
                 });
-        } else if drop_idx == 0 {
-            self.project
-                .invoke_command(
+        } else if source_resource.is_none() {
+            if drop_idx == 0 {
+                self.project
+                    .invoke_command(
+                        Command {
+                            timestamp,
+                            details: CommandDetails::AssignTask {
+                                task_id: dragged_task_id,
+                                resource_name: target_resource.name.clone(),
+                            },
+                        },
+                        date,
+                    )
+                    .unwrap_or_else(|e| {
+                        gui_log!(self, "Failed to assign task via drag-drop: {e}");
+                    });
+            } else {
+                let commands = vec![
                     Command {
                         timestamp,
                         details: CommandDetails::AssignTask {
@@ -71,13 +87,35 @@ impl Gui {
                             resource_name: target_resource.name.clone(),
                         },
                     },
-                    date,
-                )
-                .unwrap_or_else(|e| {
-                    gui_log!(self, "Failed to assign task via drag-drop: {e}");
-                });
+                    Command {
+                        timestamp,
+                        details: CommandDetails::ChangeTaskPriority {
+                            task_id: dragged_task_id,
+                            delta: drop_idx as i32,
+                        },
+                    },
+                ];
+                self.project
+                    .invoke_command(
+                        Command {
+                            timestamp,
+                            details: CommandDetails::CompoundCommand { commands },
+                        },
+                        date,
+                    )
+                    .unwrap_or_else(|e| {
+                        gui_log!(self, "Failed to assign and prioritize task via drag-drop: {e}");
+                    });
+            }
         } else {
             let commands = vec![
+                Command {
+                    timestamp,
+                    details: CommandDetails::PrioritizeTask {
+                        task_id: dragged_task_id,
+                        to_top: true,
+                    },
+                },
                 Command {
                     timestamp,
                     details: CommandDetails::AssignTask {
@@ -102,7 +140,7 @@ impl Gui {
                     date,
                 )
                 .unwrap_or_else(|e| {
-                    gui_log!(self, "Failed to assign and prioritize task via drag-drop: {e}");
+                    gui_log!(self, "Failed to move task across resources via drag-drop: {e}");
                 });
         }
     }
@@ -258,7 +296,6 @@ impl Gui {
                             dragged_task_id,
                             *task_id,
                             resource_id,
-                            resource,
                         );
                     }
                 }
