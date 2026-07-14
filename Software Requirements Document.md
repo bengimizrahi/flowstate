@@ -183,6 +183,8 @@ Out of scope:
 
 FlowState does not replace Jira. It augments Jira with planning, forecasting, risk detection, release intelligence, and decision support.
 
+---
+
 # 2. Stakeholders
 
 ## Business Owner
@@ -266,6 +268,8 @@ Outward-facing delivery communication — release updates, milestone announcemen
 
 Release managers and delivery leads control what is shared externally, when it is shared, and in what form. FlowState supports internal decision-making; it does not replace judgment about what internal operational detail should be disclosed outside the organization.
 
+---
+
 # 3. User Types
 
 FlowState distinguishes user types by **what each role needs to do**, not by what data they can see. All internal delivery participants share the same view of release plans, schedules, dependencies, risks, and forecasts. Differences between user types are limited to a small set of action-oriented capabilities — such as logging work or approving automated remediation suggestions.
@@ -330,6 +334,8 @@ Same read access as all internal users. Additional action permissions:
 | Approve automated anomaly remediation | No |
 | Push schedule or status changes to Jira without approval | No |
 | Configure the application | No |
+
+---
 
 ## User Type: Project Manager / Product Owner
 
@@ -429,6 +435,8 @@ Technical owner responsible for connecting FlowState to Jira and external servic
 |--------|---------|
 | All User capabilities | Yes |
 | Configure application and integrations | Yes |
+
+---
 
 # 4. User Stories
 
@@ -1225,6 +1233,8 @@ A parent row shows **aggregated person-days** logged across all child work items
 ## Epic: Anomaly Detection and Remediation
 
 FlowState continuously monitors delivery activity and proposes remediation actions. Managers **review and approve** before emails are sent or Jira is updated (except user-initiated actions such as US-013).
+
+---
 
 ### US-024: Incomplete Daily Worklog Reminder
 
@@ -2259,6 +2269,8 @@ Administrators configure the system; they do not govern business-level access to
 Any information shared outside the delivery team — to executives, PMO, customers, or partners — is intentional and curated. FlowState does not expose operational delivery intelligence to external audiences by default.
 
 Export, reporting, and communication features may support preparing outward-facing summaries, but the release manager retains control over what crosses the organizational boundary.
+
+---
 
 ## Terminology
 
